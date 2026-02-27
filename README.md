@@ -395,6 +395,19 @@ jobs/{jobId}{
 - `done` 済みの同一キーjobが存在する場合は新規処理を開始しない
 - `persist` stepはupsertで実装し、重複書き込み時も同一結果を保証する
 
+## 8.5 想定レースコンディションと対策
+
+- ケース1：複数ワーカーが同じ`queued` jobを同時に取得する
+  - 対策：`lockDueJobs`でFirestoreトランザクションを使い、`status=queued`と`nextRunAt<=now`を再検証した上で`processing`へ更新
+- ケース2：同一`materialId + pipelineVersion`の重複jobが作成される
+  - 対策：jobIdを`material_pipeline:{materialId}:{pipelineVersion}`の固定IDにし、作成トランザクションで重複作成を拒否
+- ケース3：同一キーjobが別docで残存しており、並列実行される
+  - 対策：ロック時に同一キーの`processing/done`を照会し、`done`があれば即スキップ、`processing`があれば再キュー
+- ケース4：ワーカー異常終了で`processing`のまま取り残される
+  - 対策：`lockedAt`がTTL超過のjobを定期回収し、`queued`に戻して再実行
+- ケース5：再試行が集中して同時刻に再突入する
+  - 対策：`attempt`ベースの指数バックオフで`nextRunAt`を後ろ倒しし、再実行を分散
+
 ---
 
 ## 9. セキュリティ・匿名性・運用
@@ -564,3 +577,207 @@ npm run dev
 - `http://localhost:3000` を開く
 - 画面に `Firebase Anonymous Auth: initialized` が表示される
 - 画面に `Firestore: ready` が表示される
+
+---
+
+## 18. glossary レイテンシ計測方法
+
+- API側計測：`/api/materials/:materialId/glossary` で `startedAt=Date.now()` からレスポンス直前までを `latencyMs` として返却
+- クライアント側計測：`performance.now()` で要求開始からJSON受信完了までを `total` として表示
+- 表示形式：`source: firestore-cache/generated / api: XXXms / total: YYYms`
+- UX保護：クライアントは `900ms` タイムアウト（`AbortController`）を設定し、超過時は即時に再試行案内を表示
+
+---
+
+## 19. 重要表現パイプライン サンプル入出力JSON
+
+### 19.1 extract入力（segments）
+
+```json
+{
+  "materialId": "mat_123",
+  "segments": [
+    {
+      "id": "seg_1",
+      "startMs": 1200,
+      "endMs": 4200,
+      "text": "We need to align on the long term strategy."
+    }
+  ]
+}
+```
+
+---
+
+## 20. セットアップ手順
+
+1. Node.js 20系以上をインストール
+2. 依存パッケージをインストール
+
+```bash
+npm install
+```
+
+3. 環境変数を作成（`.env.example` を `.env.local` にコピー）
+
+```bash
+cp .env.example .env.local
+```
+
+4. `.env.local` に Firebase / Secret を設定
+5. Firebase Console で Anonymous Auth と Firestore を有効化
+
+---
+
+## 21. 環境変数説明
+
+### 21.1 クライアントSDK（Next.js公開）
+
+- `NEXT_PUBLIC_FIREBASE_API_KEY`: Firebase Web API Key
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`: Authドメイン（`<project>.firebaseapp.com`）
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`: Firebase Project ID
+- `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`: Storageバケット
+- `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`: Sender ID
+- `NEXT_PUBLIC_FIREBASE_APP_ID`: Firebase App ID
+
+### 21.2 サーバーSDK（Vercel Functions / Worker）
+
+- `FIREBASE_PROJECT_ID`: Firebase Project ID
+- `FIREBASE_CLIENT_EMAIL`: Service Account client email
+- `FIREBASE_PRIVATE_KEY`: Service Account private key（改行は `\n` 形式）
+
+### 21.3 内部API保護
+
+- `CRON_SECRET`: Cronエンドポイント呼び出し用Bearer Secret
+- `WORKER_SECRET`: Worker API呼び出し用Bearer Secret
+
+---
+
+## 22. ローカル開発手順
+
+1. 開発サーバー起動
+
+```bash
+npm run dev
+```
+
+2. テスト実行
+
+```bash
+npm test
+```
+
+3. 型チェック
+
+```bash
+npm run typecheck
+```
+
+4. ブラウザで `http://localhost:3000` を開く
+
+---
+
+## 23. デプロイ手順（Vercel / Firebase）
+
+### 23.1 Firebase側
+
+1. Firebaseプロジェクト作成
+2. Authenticationで Anonymous を有効化
+3. FirestoreをNativeモードで作成
+4. Service Accountキーを発行（Vercel環境変数へ設定）
+
+### 23.2 Vercel側
+
+1. GitリポジトリをVercelへ接続
+2. Environment Variablesに `.env.example` の全項目を登録
+3. `vercel.json` のCron設定を有効化
+4. デプロイ実行（Preview/Production）
+5. Productionで `/api/cron/jobs` が定期実行されることを確認
+
+---
+
+## 24. 運用監視指標
+
+- `jobs成功率`
+  - 定義: `done / (done + failed)`（期間集計）
+- `生成時間`
+  - 定義: `jobs.createdAt -> jobs.done(updatedAt)` の経過時間
+- `採用数`
+  - 定義: 1 materialあたり `expressions` 保存件数（`persistedCount`）
+
+補足: 詳細な運用手順・障害対応フローは [OPERATIONS.md](./docs/OPERATIONS.md) を参照。
+
+---
+
+## 25. 既知の制約と今後の拡張
+
+### 25.1 既知の制約
+
+- YouTubeの公開動画のみ対応（非公開/限定公開は対象外）
+- 重いNLP/LLM処理はワーカー依存で、実行時間制約の影響を受ける
+- 現在の抽出・スコアリングはルールベース中心（精度改善余地あり）
+- 監視は最小構成（詳細ダッシュボードは未実装）
+
+### 25.2 今後の拡張
+
+- OpenAI連携の本実装（re-eval / examples品質向上）
+- 復習機能（SRS、クイズ、進捗可視化）
+- 運用ダッシュボード（失敗理由、P95生成時間、採用率推移）
+- 字幕ソースの品質評価とASRフォールバック高度化
+
+### 19.2 score/reeval後の候補（_pipeline state）
+
+```json
+{
+  "expressionText": "long term strategy",
+  "axisScores": {
+    "utility": 78,
+    "portability": 70,
+    "naturalness": 72,
+    "c1_value": 67,
+    "context_robustness": 55
+  },
+  "flagsFinal": [],
+  "scoreFinal": 71,
+  "decision": "reject",
+  "occurrences": [
+    {
+      "startMs": 1200,
+      "endMs": 4200,
+      "segmentId": "seg_1"
+    }
+  ]
+}
+```
+
+### 19.3 threshold採用後のpersist出力（materials/{materialId}/expressions）
+
+```json
+{
+  "expressionText": "align on priorities",
+  "scoreFinal": 82,
+  "axisScores": {
+    "utility": 85,
+    "portability": 76,
+    "naturalness": 74,
+    "c1_value": 79,
+    "context_robustness": 70
+  },
+  "meaningJa": "優先事項について認識を合わせる",
+  "reasonShort": "5軸評価=82, 出現=2",
+  "scenarioExample": "We should align on priorities before the client call.",
+  "flagsFinal": [],
+  "occurrences": [
+    {
+      "startMs": 1200,
+      "endMs": 4200,
+      "segmentId": "seg_1"
+    },
+    {
+      "startMs": 8200,
+      "endMs": 10100,
+      "segmentId": "seg_5"
+    }
+  ]
+}
+```
