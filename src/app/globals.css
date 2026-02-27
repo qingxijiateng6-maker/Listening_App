@@ -57,6 +57,29 @@ button[disabled] {
   cursor: default;
 }
 
+input[disabled] {
+  background: #eef2f8;
+  cursor: not-allowed;
+}
+
+.loadingDots {
+  display: inline-block;
+  margin-left: 0.1rem;
+  animation: loadingDotsBlink 0.9s infinite ease-in-out;
+}
+
+@keyframes loadingDotsBlink {
+  0% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.25;
+  }
+}
+
 .segmentButton {
   display: block;
   width: 100%;
@@ -124,4 +147,50 @@ button[disabled] {
 .youtubePlayerFrame {
   width: 100%;
   height: 100%;
+}
+
+.authTopRight {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+}
+
+.googleLoginButton {
+  background: #ea4335;
+  color: #fff;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.googleLoginDone {
+  background: #1e8e3e;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.authUid {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #d7dfea;
+  border-radius: 8px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+}
+
+.authError {
+  max-width: 280px;
+  color: #b3261e;
+  background: #fdecea;
+  border: 1px solid #f4b8b3;
+  border-radius: 8px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
 }

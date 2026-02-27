@@ -111,10 +111,18 @@ export function VideoRegistrationForm() {
           placeholder="https://www.youtube.com/watch?v=..."
           value={youtubeUrl}
           onChange={(event) => setYoutubeUrl(event.target.value)}
+          disabled={submitState === "submitting"}
+          readOnly={submitState === "submitting"}
           required
         />
         <button type="submit" disabled={submitState === "submitting"}>
-          {submitState === "submitting" ? "登録中..." : "教材を作成"}
+          {submitState === "submitting" ? (
+            <>
+              登録中<span className="loadingDots">...</span>
+            </>
+          ) : (
+            "教材を作成"
+          )}
         </button>
       </form>
       {message ? <p>{message}</p> : null}
