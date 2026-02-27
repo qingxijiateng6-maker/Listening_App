@@ -371,6 +371,30 @@ jobs/{jobId}{
 - ステップ分割により中断→再開可能
 - 途中失敗はattempt増加、nextRunAtを未来にして再試行
 
+## 8.4 jobs状態遷移（lock/retry/idempotency）
+
+### 状態遷移（`jobs.status`）
+
+- `queued` → `processing`
+  - 条件：`nextRunAt <= now`
+  - 実行：Firestoreトランザクションで `status=processing` / `lockedBy` / `lockedAt` を同時更新
+- `processing` → `done`
+  - 条件：全step成功、成果物永続化完了
+- `processing` → `queued`
+  - 条件：リトライ可能エラー（ネットワーク一時障害、APIレート制限など）
+  - 実行：`attempt += 1`、指数バックオフで `nextRunAt` を更新
+- `processing` → `failed`
+  - 条件：非リトライエラー、または最大試行回数超過
+- `processing(stale lock)` → `queued`
+  - 条件：`lockedAt` がロックTTL（例: 10分）を超過
+  - 実行：回収ワーカーがロックを解除して再キュー
+
+### 冪等性（必須）
+
+- 一意キー：`materialId + pipelineVersion + type`
+- `done` 済みの同一キーjobが存在する場合は新規処理を開始しない
+- `persist` stepはupsertで実装し、重複書き込み時も同一結果を保証する
+
 ---
 
 ## 9. セキュリティ・匿名性・運用
@@ -463,9 +487,47 @@ threshold判定（>=75）
 
 ---
 
-## 15. MVP範囲と将来拡張
+## 15. API一覧（責務・入力・出力・認可）
 
-（原文維持）
+| API | 責務 | 入力 | 出力 | 認可 |
+| --- | --- | --- | --- | --- |
+| `POST /api/materials` | 動画教材の登録、重複判定、生成job投入 | `{ youtubeUrl }` | `{ materialId, status }` | Firebase匿名ログイン必須（UID） |
+| `GET /api/materials/:materialId` | 教材メタ情報・生成状態の取得 | `materialId(path)` | `{ material, status }` | 公開教材は匿名可、非公開設定導入後は所有者UID確認 |
+| `GET /api/materials/:materialId/segments` | 字幕セグメント取得 | `materialId(path)` | `{ segments[] }` | 匿名可 |
+| `GET /api/materials/:materialId/expressions` | 重要表現一覧取得 | `materialId(path)` | `{ expressions[] }` | 匿名可 |
+| `POST /api/materials/:materialId/glossary` | 字幕タップ語の意味を生成/キャッシュ | `{ surfaceText }` | `{ surfaceText, meaningJa }` | 匿名可（レート制御あり） |
+| `PUT /api/users/me/expressions/:expressionId` | 学習状態（saved/ignored/mastered）を更新 | `{ status }` | `{ expressionId, status, updatedAt }` | Firebase匿名ログイン必須（`request.auth.uid`一致） |
+| `GET /api/users/me/expressions` | 自分の保存表現状態を取得 | なし | `{ items[] }` | Firebase匿名ログイン必須 |
+| `POST /api/worker/jobs/dispatch` | Cronから起動され、実行可能jobをロックして処理開始 | `cron secret header` | `{ picked, processed, failed }` | サーバー間認証（Vercel Cron Secret） |
+| `POST /api/worker/jobs/recover-stale` | stale lock jobの回収 | `cron secret header` | `{ recovered }` | サーバー間認証（Vercel Cron Secret） |
+
+---
+
+## 16. MVP範囲と将来拡張
+
+### 15.1 MVP対象（実装する）
+
+- YouTube URL登録と非同期教材生成
+- 字幕タップ時の意味表示（動画固有glossaryキャッシュ）
+- 重要表現の提示（意味・使用箇所・場面想定例文）
+- 匿名ユーザーでの保存状態更新（saved/ignored/mastered）
+- Firestore jobs + Vercel Cron/Workerによる再実行可能パイプライン
+
+### 15.2 MVP対象外（実装しない）
+
+- SSO/メール認証/アカウント統合（匿名認証のみ）
+- 複数言語UI（日本語UIのみ）
+- 復習SRS、出題アルゴリズム、通知機能
+- SNS共有、ランキング、コメント等のコミュニティ機能
+- ネイティブアプリ（iOS/Android）とオフライン再生
+- YouTube以外の動画ソース（Podcast, Vimeo等）
+- 管理画面での手動キュレーション編集
+
+### 15.3 境界条件（曖昧化防止）
+
+- 「教材生成品質の改善」はMVP内。ただし「新規学習モード追加（シャドーイング特化UI等）」はMVP外
+- 「匿名UIDでのデータ保持」はMVP内。ただし「端末間アカウント引き継ぎ」はMVP外
+- 「ジョブの失敗再試行」はMVP内。ただし「運用ダッシュボードの高度分析」はMVP外
 
 ---
 
@@ -474,3 +536,31 @@ threshold判定（>=75）
 - **重い処理（ASR / spaCy / 多段LLM）はジョブをステップ分割**し、Vercel実行制約内で継続実行できること
 - ジョブロックは **Firestoreトランザクション**で担保すること
 - glossaryは **動画固有キャッシュ**で「1秒以内UX」を守ること
+
+---
+
+## 17. ローカル起動手順（開発用）
+
+1. 依存パッケージをインストール
+
+```bash
+npm install
+```
+
+2. 環境変数を設定（`.env.example` を `.env.local` にコピーして値を入力）
+
+```bash
+cp .env.example .env.local
+```
+
+3. 開発サーバーを起動
+
+```bash
+npm run dev
+```
+
+4. 動作確認
+
+- `http://localhost:3000` を開く
+- 画面に `Firebase Anonymous Auth: initialized` が表示される
+- 画面に `Firestore: ready` が表示される
