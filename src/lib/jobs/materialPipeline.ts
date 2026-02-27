@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
+import { generateScenarioExampleWithOpenAI, isOpenAIEnabled } from "@/lib/llm/openai";
 import type { JobStep } from "@/types/domain";
 
 const THRESHOLD = 75;
@@ -113,6 +114,17 @@ function buildReason(candidate: Candidate): string {
 
 function buildScenarioExample(expressionText: string): string {
   return `In a meeting, I used "${expressionText}" to explain my point clearly.`;
+}
+
+async function buildScenarioExampleAsync(expressionText: string): Promise<string> {
+  if (!isOpenAIEnabled()) {
+    return buildScenarioExample(expressionText);
+  }
+  try {
+    return await generateScenarioExampleWithOpenAI(expressionText);
+  } catch {
+    return buildScenarioExample(expressionText);
+  }
 }
 
 function hasUnsafeTerm(text: string): boolean {
@@ -379,6 +391,18 @@ async function runReeval(materialId: string, pipelineVersion: string): Promise<v
 
 async function runExamples(materialId: string, pipelineVersion: string): Promise<void> {
   const state = await readState(materialId, pipelineVersion);
+  const acceptedWithExamples = await Promise.all(
+    state.candidates
+      .filter((candidate) => candidate.decision === "accept")
+      .map(async (candidate) => ({
+        expressionText: candidate.expressionText,
+        scenarioExample: await buildScenarioExampleAsync(candidate.expressionText),
+      })),
+  );
+  const exampleMap = new Map(
+    acceptedWithExamples.map((entry) => [entry.expressionText, entry.scenarioExample]),
+  );
+
   const updatedCandidates = state.candidates.map((candidate) => {
     if (candidate.decision !== "accept") {
       return candidate;
@@ -387,7 +411,7 @@ async function runExamples(materialId: string, pipelineVersion: string): Promise
       ...candidate,
       meaningJa: buildMeaningJa(candidate.expressionText),
       reasonShort: buildReason(candidate),
-      scenarioExample: buildScenarioExample(candidate.expressionText),
+      scenarioExample: exampleMap.get(candidate.expressionText) ?? buildScenarioExample(candidate.expressionText),
     };
   });
   const accepted = updatedCandidates.filter((candidate) => candidate.decision === "accept");

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { buildFallbackMeaningJa, glossaryHash, normalizeSurfaceText } from "@/lib/glossary";
+import { generateGlossaryMeaningJaWithOpenAI, isOpenAIEnabled } from "@/lib/llm/openai";
 
 export const runtime = "nodejs";
 
@@ -11,13 +12,13 @@ type GlossaryRequestBody = {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { materialId: string } },
+  { params }: { params: Promise<{ materialId: string }> },
 ) {
   const startedAt = Date.now();
   const body = (await request.json()) as GlossaryRequestBody;
   const rawSurfaceText = body.surfaceText ?? "";
   const surfaceText = normalizeSurfaceText(rawSurfaceText);
-  const { materialId } = params;
+  const { materialId } = await params;
 
   if (!surfaceText) {
     return NextResponse.json({ error: "surfaceText is required" }, { status: 400 });
@@ -38,7 +39,14 @@ export async function POST(
     });
   }
 
-  const generatedMeaningJa = buildFallbackMeaningJa(surfaceText);
+  let generatedMeaningJa = buildFallbackMeaningJa(surfaceText);
+  if (isOpenAIEnabled()) {
+    try {
+      generatedMeaningJa = await generateGlossaryMeaningJaWithOpenAI(surfaceText);
+    } catch {
+      generatedMeaningJa = buildFallbackMeaningJa(surfaceText);
+    }
+  }
   await glossaryRef.set({
     surfaceText,
     meaningJa: generatedMeaningJa,

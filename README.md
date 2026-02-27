@@ -514,11 +514,28 @@ threshold判定（>=75）
 | `POST /api/worker/jobs/dispatch` | Cronから起動され、実行可能jobをロックして処理開始 | `cron secret header` | `{ picked, processed, failed }` | サーバー間認証（Vercel Cron Secret） |
 | `POST /api/worker/jobs/recover-stale` | stale lock jobの回収 | `cron secret header` | `{ recovered }` | サーバー間認証（Vercel Cron Secret） |
 
+### 15.1 API実装状況（2026-02-27時点）
+
+- 実装済み:
+  - `POST /api/materials/:materialId/glossary`
+  - `GET /api/cron/jobs`
+  - `POST /api/jobs/dispatch`
+  - `POST /api/worker/material-pipeline`
+  - `POST /api/worker/jobs/dispatch`
+  - `POST /api/worker/jobs/recover-stale`
+- 未実装（MVP残タスク）:
+  - `POST /api/materials`
+  - `GET /api/materials/:materialId`
+  - `GET /api/materials/:materialId/segments`
+  - `GET /api/materials/:materialId/expressions`
+  - `PUT /api/users/me/expressions/:expressionId`
+  - `GET /api/users/me/expressions`
+
 ---
 
 ## 16. MVP範囲と将来拡張
 
-### 15.1 MVP対象（実装する）
+### 16.1 MVP対象（実装する）
 
 - YouTube URL登録と非同期教材生成
 - 字幕タップ時の意味表示（動画固有glossaryキャッシュ）
@@ -526,7 +543,7 @@ threshold判定（>=75）
 - 匿名ユーザーでの保存状態更新（saved/ignored/mastered）
 - Firestore jobs + Vercel Cron/Workerによる再実行可能パイプライン
 
-### 15.2 MVP対象外（実装しない）
+### 16.2 MVP対象外（実装しない）
 
 - SSO/メール認証/アカウント統合（匿名認証のみ）
 - 複数言語UI（日本語UIのみ）
@@ -536,7 +553,7 @@ threshold判定（>=75）
 - YouTube以外の動画ソース（Podcast, Vimeo等）
 - 管理画面での手動キュレーション編集
 
-### 15.3 境界条件（曖昧化防止）
+### 16.3 境界条件（曖昧化防止）
 
 - 「教材生成品質の改善」はMVP内。ただし「新規学習モード追加（シャドーイング特化UI等）」はMVP外
 - 「匿名UIDでのデータ保持」はMVP内。ただし「端末間アカウント引き継ぎ」はMVP外
@@ -627,6 +644,15 @@ cp .env.example .env.local
 4. `.env.local` に Firebase / Secret を設定
 5. Firebase Console で Anonymous Auth と Firestore を有効化
 
+`.env.local` 例（抜粋）:
+
+```bash
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_TIMEOUT_MS=8000
+```
+
 ---
 
 ## 21. 環境変数説明
@@ -650,6 +676,13 @@ cp .env.example .env.local
 
 - `CRON_SECRET`: Cronエンドポイント呼び出し用Bearer Secret
 - `WORKER_SECRET`: Worker API呼び出し用Bearer Secret
+
+### 21.4 OpenAI（サーバー専用）
+
+- `OPENAI_API_KEY`: OpenAI APIキー（必須）
+- `OPENAI_MODEL`: 利用モデル名（例: `gpt-4o-mini`）
+- `OPENAI_BASE_URL`: OpenAI APIベースURL（通常は `https://api.openai.com/v1`）
+- `OPENAI_TIMEOUT_MS`: OpenAIリクエストタイムアウト（ミリ秒）
 
 ---
 
