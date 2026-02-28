@@ -684,6 +684,8 @@ OPENAI_TIMEOUT_MS=8000
 - `OPENAI_MODEL`: 利用モデル名（例: `gpt-4o-mini`）
 - `OPENAI_BASE_URL`: OpenAI APIベースURL（通常は `https://api.openai.com/v1`）
 - `OPENAI_TIMEOUT_MS`: OpenAIリクエストタイムアウト（ミリ秒）
+- 実装位置: `src/lib/server/llm/*`
+- Provider差し替え: `ServerLlmProvider` を差し込むだけで可能
 
 ---
 
@@ -807,7 +809,7 @@ stale lock回収用に、別ジョブでもう1本追加する:
 
 ### 25.2 今後の拡張
 
-- OpenAI連携の本実装（re-eval / examples品質向上）
+- OpenAI活用範囲の拡張（re-eval / examples品質向上）
 - 復習機能（SRS、クイズ、進捗可視化）
 - 運用ダッシュボード（失敗理由、P95生成時間、採用率推移）
 - 字幕ソースの品質評価とASRフォールバック高度化

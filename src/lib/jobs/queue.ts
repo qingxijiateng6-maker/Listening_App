@@ -46,7 +46,30 @@ type JobRecord = {
 type MaterialRecord = {
   pipelineVersion: string;
   status: "queued" | "processing" | "ready" | "failed";
+  pipelineState?: {
+    currentStep: JobStep;
+    lastCompletedStep: JobStep | null;
+    status: "queued" | "processing" | "ready" | "failed";
+    updatedAt: Timestamp;
+    errorCode?: string;
+    errorMessage?: string;
+  };
   updatedAt: Timestamp;
+};
+
+type PipelineProgressState = {
+  materialStatus: MaterialRecord["status"];
+  jobStatus: JobStatus;
+  jobStep: JobStep;
+  pipelineState: NonNullable<MaterialRecord["pipelineState"]>;
+};
+
+type JobFailureDetails = {
+  nextAttempt: number;
+  nextRunAt: Timestamp;
+  isPermanentFailure: boolean;
+  errorCode: string;
+  errorMessage: string;
 };
 
 export type DispatchResult = {
@@ -66,6 +89,14 @@ function nextStep(step: JobStep): JobStep | null {
   return MATERIAL_PIPELINE_STEPS[index + 1] ?? null;
 }
 
+function firstStep(): JobStep {
+  return MATERIAL_PIPELINE_STEPS[0];
+}
+
+function lastStep(): JobStep {
+  return MATERIAL_PIPELINE_STEPS[MATERIAL_PIPELINE_STEPS.length - 1] ?? "persist";
+}
+
 export function computeBackoffSeconds(attempt: number): number {
   return JOB_BACKOFF_BASE_SECONDS * 2 ** Math.max(0, attempt - 1);
 }
@@ -75,6 +106,49 @@ export function isLockStale(lockedAt: Timestamp | undefined, now: Timestamp): bo
     return true;
   }
   return now.toMillis() - lockedAt.toMillis() > JOB_LOCK_TIMEOUT_MS;
+}
+
+export function buildPipelineProgressState(step: JobStep, now: Timestamp): PipelineProgressState {
+  const next = nextStep(step);
+  const isCompleted = next === null;
+  const materialStatus: MaterialRecord["status"] = isCompleted ? "ready" : "processing";
+  const currentStep = isCompleted ? step : next;
+
+  return {
+    materialStatus,
+    jobStatus: isCompleted ? "done" : "processing",
+    jobStep: currentStep,
+    pipelineState: {
+      currentStep,
+      lastCompletedStep: step,
+      status: materialStatus,
+      updatedAt: now,
+      errorCode: "",
+      errorMessage: "",
+    },
+  };
+}
+
+export function buildJobFailureDetails(
+  step: JobStep,
+  attempt: number,
+  error: unknown,
+): JobFailureDetails {
+  const nextAttempt = attempt + 1;
+  const nextRunAt = Timestamp.fromMillis(
+    Date.now() + computeBackoffSeconds(nextAttempt) * 1000,
+  );
+  const isPermanentFailure = nextAttempt >= JOB_MAX_ATTEMPTS;
+  const failureStage = isPermanentFailure ? "failed" : "retrying";
+  const reason = error instanceof Error ? error.message : "Unknown worker failure";
+
+  return {
+    nextAttempt,
+    nextRunAt,
+    isPermanentFailure,
+    errorCode: `material_pipeline_${step}_${failureStage}`,
+    errorMessage: `material pipeline step "${step}" ${failureStage} on attempt ${nextAttempt}/${JOB_MAX_ATTEMPTS}: ${reason}`,
+  };
 }
 
 export async function reclaimStaleProcessingJobs(workerId: string): Promise<number> {
@@ -253,20 +327,49 @@ async function markJobDone(jobId: string): Promise<void> {
 
 async function markJobQueuedForRetry(jobId: string, attempt: number, error: unknown): Promise<void> {
   const db = getAdminDb();
-  const nextAttempt = attempt + 1;
-  const nextRunAt = Timestamp.fromMillis(
-    Date.now() + computeBackoffSeconds(nextAttempt) * 1000,
-  );
-  const isPermanentFailure = nextAttempt >= JOB_MAX_ATTEMPTS;
+  const now = nowTs();
+  const jobRef = db.collection("jobs").doc(jobId);
 
-  await db.collection("jobs").doc(jobId).update({
-    status: isPermanentFailure ? "failed" : "queued",
-    attempt: nextAttempt,
-    nextRunAt,
-    updatedAt: nowTs(),
-    lockedBy: "",
-    errorCode: "step_failed",
-    errorMessage: error instanceof Error ? error.message : "Unknown worker failure",
+  await db.runTransaction(async (tx) => {
+    const jobSnap = await tx.get(jobRef);
+    if (!jobSnap.exists) {
+      return;
+    }
+
+    const job = jobSnap.data() as JobRecord;
+    const failure = buildJobFailureDetails(job.step, attempt, error);
+    const materialRef = db.collection("materials").doc(job.materialId);
+    const materialSnap = await tx.get(materialRef);
+
+    tx.update(jobRef, {
+      status: failure.isPermanentFailure ? "failed" : "queued",
+      attempt: failure.nextAttempt,
+      nextRunAt: failure.nextRunAt,
+      updatedAt: now,
+      lockedBy: "",
+      lockedAt: now,
+      errorCode: failure.errorCode,
+      errorMessage: failure.errorMessage,
+    });
+
+    if (!materialSnap.exists) {
+      return;
+    }
+
+    const material = materialSnap.data() as MaterialRecord;
+    tx.update(materialRef, {
+      status: failure.isPermanentFailure ? "failed" : "queued",
+      pipelineVersion: job.pipelineVersion,
+      updatedAt: now,
+      pipelineState: {
+        currentStep: job.step,
+        lastCompletedStep: material.pipelineState?.lastCompletedStep ?? null,
+        status: failure.isPermanentFailure ? "failed" : "queued",
+        updatedAt: now,
+        errorCode: failure.errorCode,
+        errorMessage: failure.errorMessage,
+      },
+    });
   });
 }
 
@@ -307,35 +410,38 @@ async function progressMaterialPipeline(jobId: string, job: JobRecord): Promise<
       material.pipelineVersion === latestJob.pipelineVersion &&
       latestJob.pipelineVersion === MATERIAL_PIPELINE_VERSION
     ) {
+      const completed = buildPipelineProgressState(lastStep(), now);
+      tx.update(materialRef, {
+        status: completed.materialStatus,
+        pipelineVersion: latestJob.pipelineVersion,
+        updatedAt: now,
+        pipelineState: completed.pipelineState,
+      });
       tx.update(jobRef, {
         status: "done",
+        step: lastStep(),
         updatedAt: now,
         lockedBy: "",
+        lockedAt: now,
         errorCode: "",
         errorMessage: "",
       });
       return;
     }
-
-    const next = nextStep(latestJob.step);
-    const isCompleted = next === null;
+    const progress = buildPipelineProgressState(latestJob.step, now);
 
     tx.update(materialRef, {
-      status: isCompleted ? "ready" : "processing",
+      status: progress.materialStatus,
       pipelineVersion: latestJob.pipelineVersion,
       updatedAt: now,
-      pipelineState: {
-        currentStep: isCompleted ? latestJob.step : next,
-        lastCompletedStep: latestJob.step,
-        updatedAt: now,
-      },
+      pipelineState: progress.pipelineState,
     });
 
     tx.update(jobRef, {
-      status: isCompleted ? "done" : "processing",
-      step: isCompleted ? latestJob.step : next,
+      status: progress.jobStatus,
+      step: progress.jobStep,
       updatedAt: now,
-      lockedBy: isCompleted ? "" : latestJob.lockedBy,
+      lockedBy: progress.jobStatus === "done" ? "" : latestJob.lockedBy,
       lockedAt: now,
       errorCode: "",
       errorMessage: "",
@@ -429,6 +535,7 @@ export async function enqueueMaterialPipelineJob(materialId: string): Promise<st
   const now = nowTs();
   const jobId = buildMaterialPipelineJobId(materialId, MATERIAL_PIPELINE_VERSION);
   const jobRef = db.collection("jobs").doc(jobId);
+  const materialRef = db.collection("materials").doc(materialId);
 
   await db.runTransaction(async (tx) => {
     const existing = await tx.get(jobRef);
@@ -449,6 +556,30 @@ export async function enqueueMaterialPipelineJob(materialId: string): Promise<st
       errorMessage: "",
       createdAt: now,
       updatedAt: now,
+    });
+
+    const materialSnap = await tx.get(materialRef);
+    if (!materialSnap.exists) {
+      return;
+    }
+
+    const material = materialSnap.data() as MaterialRecord;
+    if (material.status === "ready" && material.pipelineVersion === MATERIAL_PIPELINE_VERSION) {
+      return;
+    }
+
+    tx.update(materialRef, {
+      status: "queued",
+      pipelineVersion: MATERIAL_PIPELINE_VERSION,
+      updatedAt: now,
+      pipelineState: {
+        currentStep: firstStep(),
+        lastCompletedStep: null,
+        status: "queued",
+        updatedAt: now,
+        errorCode: "",
+        errorMessage: "",
+      },
     });
   });
 
