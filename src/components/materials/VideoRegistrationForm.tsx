@@ -2,13 +2,8 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { addDoc, doc, getDoc, getDocs, limit, query, setDoc, Timestamp, where } from "firebase/firestore";
 import { signInAnonymouslyIfNeeded } from "@/lib/firebase/auth";
-import { jobsCollection, materialsCollection } from "@/lib/firebase/firestore";
-import { buildMaterialPipelineJobId } from "@/lib/jobs/idempotency";
-import { MATERIAL_PIPELINE_VERSION } from "@/lib/constants";
-import { isPubliclyAccessibleYouTubeVideo, parseYouTubeUrl } from "@/lib/youtube";
-import type { Job, Material } from "@/types/domain";
+import { parseYouTubeUrl } from "@/lib/youtube";
 
 type SubmitState = "idle" | "submitting";
 
@@ -32,66 +27,29 @@ export function VideoRegistrationForm() {
     setSubmitState("submitting");
     try {
       await signInAnonymouslyIfNeeded();
+      const response = await fetch("/api/materials", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ youtubeUrl: parsed.normalizedUrl }),
+      });
 
-      const isPublic = await isPubliclyAccessibleYouTubeVideo(parsed.youtubeId);
-      if (!isPublic) {
-        setMessage("公開動画URLのみ対応しています。");
-        return;
+      const payload = (await response.json()) as {
+        error?: string;
+        materialId?: string;
+        reused?: boolean;
+      };
+
+      if (!response.ok || !payload.materialId) {
+        throw new Error(payload.error ?? "動画登録に失敗しました。");
       }
 
-      const existingQuery = query(
-        materialsCollection(),
-        where("youtubeId", "==", parsed.youtubeId),
-        where("pipelineVersion", "==", MATERIAL_PIPELINE_VERSION),
-        limit(1),
-      );
-      const existingSnapshot = await getDocs(existingQuery);
-
-      if (!existingSnapshot.empty) {
-        const existingMaterialId = existingSnapshot.docs[0].id;
+      if (payload.reused) {
         setMessage("既存教材を再利用します。");
-        router.push(`/materials/${existingMaterialId}`);
-        return;
       }
 
-      const now = Timestamp.now();
-      const material: Material = {
-        youtubeUrl: parsed.normalizedUrl,
-        youtubeId: parsed.youtubeId,
-        title: "",
-        channel: "",
-        durationSec: 0,
-        status: "queued",
-        pipelineVersion: MATERIAL_PIPELINE_VERSION,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const materialRef = await addDoc(materialsCollection(), material);
-
-      const job: Job = {
-        type: "material_pipeline",
-        materialId: materialRef.id,
-        pipelineVersion: MATERIAL_PIPELINE_VERSION,
-        status: "queued",
-        step: "meta",
-        attempt: 0,
-        nextRunAt: now,
-        lockedBy: "",
-        lockedAt: now,
-        errorCode: "",
-        errorMessage: "",
-        createdAt: now,
-        updatedAt: now,
-      };
-      const jobId = buildMaterialPipelineJobId(materialRef.id, MATERIAL_PIPELINE_VERSION);
-      const jobRef = doc(jobsCollection(), jobId);
-      const jobSnapshot = await getDoc(jobRef);
-      if (!jobSnapshot.exists()) {
-        await setDoc(jobRef, job);
-      }
-
-      router.push(`/materials/${materialRef.id}`);
+      router.push(`/materials/${payload.materialId}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "動画登録に失敗しました。");
     } finally {

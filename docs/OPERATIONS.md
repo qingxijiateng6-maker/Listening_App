@@ -9,7 +9,7 @@
 - Web/App: Next.js (Vercel)
 - 認証: Firebase Anonymous Auth
 - DB: Firestore
-- 非同期処理: Firestore `jobs` + Vercel Cron + Worker API
+- 非同期処理: Firestore `jobs` + 登録API即時実行 + 外部スケジューラ + Worker API
 
 ## 3. 監視指標（KPI / SLO候補）
 
@@ -46,6 +46,27 @@
 2. `processing` 長期滞留（stale lock）確認
 3. 直近デプロイ以降の `jobs成功率` と `生成時間` 比較
 4. 採用数が異常に少ない/多い `material` をサンプリング確認
+
+## 4.1 外部スケジューラ運用
+
+- Hobbyプランでは Vercel Cron を使わず、外部スケジューラから Worker API を叩く
+- 推奨は `cron-job.org`
+- 代替は GitHub Actions または Cloudflare Workers Cron
+
+最低限の実行対象:
+
+1. `POST /api/worker/jobs/dispatch`
+2. `POST /api/worker/jobs/recover-stale`
+
+推奨間隔:
+
+- `dispatch`: 5分ごと
+- `recover-stale`: 15分ごと
+
+共通ヘッダ:
+
+- `Authorization: Bearer <WORKER_SECRET>`
+- `Content-Type: application/json`
 
 ## 5. 障害対応フロー
 
@@ -89,12 +110,17 @@
    - jobs成功率
    - failed件数
    - P95生成時間
+5. 外部スケジューラの疎通確認
+   - `dispatch` が 2xx を返す
+   - `recover-stale` が 2xx を返す
+   - Authorization header の設定ミスがない
 
 ## 7. 既知の制約
 
 - YouTube公開動画以外は非対応
 - Worker実行時間制約により、長尺動画で再試行回数が増える場合がある
 - 現在は最小監視構成で、専用ダッシュボードは未実装
+- GitHub Actions の schedule は最短5分で、時刻遅延が起きることがある
 
 ## 8. 今後の拡張
 

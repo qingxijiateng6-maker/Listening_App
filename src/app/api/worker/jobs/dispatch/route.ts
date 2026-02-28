@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { JOB_DISPATCH_BATCH_SIZE } from "@/lib/constants";
-import { createWorkerId, dispatchJobs, runSingleJob } from "@/lib/jobs/queue";
+import { createWorkerId, dispatchJobs, runJobToCompletion } from "@/lib/jobs/queue";
 import { isAuthorizedCronRequest, isAuthorizedWorkerRequest } from "@/lib/server/internalAuth";
 
 export const runtime = "nodejs";
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
   let failed = 0;
   const results = await Promise.all(
     dispatchResult.lockedJobIds.map(async (jobId) => {
-      const result = await runSingleJob(jobId);
+      const result = await runJobToCompletion(jobId, createWorkerId("worker-dispatch-run"));
       if (result.result === "failed") {
         failed += 1;
       } else {

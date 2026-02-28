@@ -202,6 +202,38 @@ export async function lockDueJobs(limitCount: number, workerId: string): Promise
   return lockedJobIds;
 }
 
+export async function lockJobById(jobId: string, workerId: string): Promise<boolean> {
+  const db = getAdminDb();
+  const now = nowTs();
+  const jobRef = db.collection("jobs").doc(jobId);
+  let locked = false;
+
+  await db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(jobRef);
+    if (!snapshot.exists) {
+      return;
+    }
+
+    const job = snapshot.data() as JobRecord;
+    if (job.status === "done") {
+      return;
+    }
+    if (job.status === "processing" && !isLockStale(job.lockedAt, now)) {
+      return;
+    }
+
+    tx.update(jobRef, {
+      status: "processing",
+      lockedBy: workerId,
+      lockedAt: now,
+      updatedAt: now,
+    });
+    locked = true;
+  });
+
+  return locked;
+}
+
 export async function dispatchJobs(limitCount: number, workerId: string): Promise<DispatchResult> {
   const reclaimedStaleLocks = await reclaimStaleProcessingJobs(workerId);
   const lockedJobIds = await lockDueJobs(limitCount, workerId);
@@ -343,6 +375,53 @@ export async function runSingleJob(jobId: string): Promise<{
     await markJobQueuedForRetry(jobId, job.attempt, error);
     return { result: "failed" };
   }
+}
+
+export async function runJobToCompletion(
+  jobId: string,
+  workerId: string,
+  maxIterations = MATERIAL_PIPELINE_STEPS.length + 2,
+): Promise<{ result: "done" | "processing" | "failed" }> {
+  const db = getAdminDb();
+  const jobRef = db.collection("jobs").doc(jobId);
+
+  await lockJobById(jobId, workerId);
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const snapshot = await jobRef.get();
+    if (!snapshot.exists) {
+      return { result: "failed" };
+    }
+
+    const job = snapshot.data() as JobRecord;
+    if (job.status === "done") {
+      return { result: "done" };
+    }
+    if (job.status === "failed") {
+      return { result: "failed" };
+    }
+    if (job.status === "queued") {
+      const locked = await lockJobById(jobId, workerId);
+      if (!locked) {
+        return { result: "processing" };
+      }
+      continue;
+    }
+
+    const result = await runSingleJob(jobId);
+    if (result.result === "failed") {
+      const latest = await jobRef.get();
+      const latestJob = latest.data() as JobRecord | undefined;
+      if (!latestJob) {
+        return { result: "failed" };
+      }
+      return {
+        result: latestJob.status === "failed" ? "failed" : "processing",
+      };
+    }
+  }
+
+  return { result: "processing" };
 }
 
 export async function enqueueMaterialPipelineJob(materialId: string): Promise<string> {

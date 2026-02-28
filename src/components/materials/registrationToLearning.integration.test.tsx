@@ -7,9 +7,9 @@ import { VideoRegistrationForm } from "@/components/materials/VideoRegistrationF
 type DocRecord = Record<string, unknown>;
 
 const pushMock = vi.fn();
+const fetchMock = vi.fn();
 
 const materials = new Map<string, DocRecord>();
-const jobs = new Map<string, DocRecord>();
 const segments = new Map<string, Array<{ id: string; data: DocRecord }>>();
 const expressions = new Map<string, Array<{ id: string; data: DocRecord }>>();
 
@@ -32,7 +32,6 @@ vi.mock("@/lib/youtube", () => ({
     youtubeId: "dQw4w9WgXcQ",
     normalizedUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   })),
-  isPubliclyAccessibleYouTubeVideo: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("@/components/materials/YouTubeIFramePlayer", () => ({
@@ -41,8 +40,6 @@ vi.mock("@/components/materials/YouTubeIFramePlayer", () => ({
 
 vi.mock("@/lib/firebase/firestore", () => ({
   getDb: vi.fn(() => ({})),
-  materialsCollection: vi.fn(() => ({ path: "materials" })),
-  jobsCollection: vi.fn(() => ({ path: "jobs" })),
   materialDoc: vi.fn((materialId: string) => ({ path: `materials/${materialId}` })),
   segmentsCollection: vi.fn((materialId: string) => ({ path: `materials/${materialId}/segments` })),
   expressionsCollection: vi.fn((materialId: string) => ({ path: `materials/${materialId}/expressions` })),
@@ -61,26 +58,7 @@ vi.mock("firebase/firestore", () => ({
     }
     return { path: args.map(String).join("/") };
   },
-  addDoc: async (ref: { path: string }, payload: DocRecord) => {
-    if (ref.path === "materials") {
-      const id = "mat1";
-      materials.set(id, payload);
-      return { id };
-    }
-    throw new Error(`Unsupported addDoc path: ${ref.path}`);
-  },
-  setDoc: async (ref: { path: string }, payload: DocRecord) => {
-    if (ref.path.startsWith("jobs/")) {
-      jobs.set(ref.path.replace("jobs/", ""), payload);
-      return;
-    }
-  },
   getDoc: async (ref: { path: string }) => {
-    if (ref.path.startsWith("jobs/")) {
-      const id = ref.path.replace("jobs/", "");
-      const data = jobs.get(id);
-      return { exists: () => Boolean(data), data: () => data };
-    }
     if (ref.path.startsWith("materials/")) {
       const id = ref.path.replace("materials/", "");
       const data = materials.get(id);
@@ -114,13 +92,23 @@ vi.mock("firebase/firestore", () => ({
 describe("registration -> queued job -> learning integration", () => {
   beforeEach(() => {
     pushMock.mockReset();
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
     materials.clear();
-    jobs.clear();
     segments.clear();
     expressions.clear();
   });
 
-  it("registers video, creates queued job, then renders learning screen after completion", async () => {
+  it("registers video through API, then renders learning screen after completion", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        materialId: "mat1",
+        status: "ready",
+        reused: false,
+      }),
+    });
+
     render(<VideoRegistrationForm />);
 
     fireEvent.change(screen.getByLabelText("YouTube URL"), {
@@ -130,8 +118,6 @@ describe("registration -> queued job -> learning integration", () => {
 
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/materials/mat1");
-      expect(jobs.has("material_pipeline:mat1:v1")).toBe(true);
-      expect((jobs.get("material_pipeline:mat1:v1") as { status?: string })?.status).toBe("queued");
     });
 
     materials.set("mat1", {

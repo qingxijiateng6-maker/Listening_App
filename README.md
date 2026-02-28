@@ -161,7 +161,7 @@
 | 認証 | **Firebase Anonymous Authentication** |
 | DB | **Firestore** |
 | 動画再生 | YouTube IFrame Player API |
-| 非同期処理 | **Firestoreジョブキュー + Vercel Cron + Vercel Worker API** |
+| 非同期処理 | **Firestoreジョブキュー + 登録時サーバー即時実行 + Vercel Worker API** |
 | NLP | spaCy（POS/NER）※Vercel実行制約に合わせて分割実行 |
 | 生成AI | OpenAI API（Provider抽象化） |
 
@@ -182,7 +182,7 @@
 | URL登録・画面表示 | Vercel（フロント） |
 | 教材生成（重処理） | Vercel Worker API（非同期） |
 | キュー管理 | Firestore（jobsコレクション） |
-| キック（定期実行） | Vercel Cron |
+| キック（定期実行） | 登録API即時実行、必要に応じて外部スケジューラ |
 | スコアリング・評価 | Vercel Worker API |
 | 辞書意味生成（オンデマンド） | Vercel API |
 | 状態管理 | Firestore |
@@ -195,7 +195,8 @@
 ### 方式（確定）
 
 - Firestoreにジョブを積む（キュー）
-- Vercel Cronが定期的にワーカーAPIを叩き、queuedをprocessingへロックして処理
+- `POST /api/materials` が教材登録直後にジョブを作成し、そのまま処理を開始
+- 必要に応じて外部スケジューラや手動実行で `dispatch/recover-stale` を呼べるようにする
 - 失敗時は指数バックオフで再実行（nextRunAt）
 
 ### 要件（必須）
@@ -346,7 +347,7 @@ jobs/{jobId}{
 ## 8.1 キュー仕様
 
 - キュー方式：**Firestore jobs**
-- 実行方式：**Vercel Cron → Worker API**
+- 実行方式：**教材登録API → Worker処理（即時）**
 - Payload相当：jobsドキュメントに内包（materialId, pipelineVersion）
 
 ## 8.2 パイプライン実行順（機能同一・確定）
@@ -511,14 +512,14 @@ threshold判定（>=75）
 | `POST /api/materials/:materialId/glossary` | 字幕タップ語の意味を生成/キャッシュ | `{ surfaceText }` | `{ surfaceText, meaningJa }` | 匿名可（レート制御あり） |
 | `PUT /api/users/me/expressions/:expressionId` | 学習状態（saved/ignored/mastered）を更新 | `{ status }` | `{ expressionId, status, updatedAt }` | Firebase匿名ログイン必須（`request.auth.uid`一致） |
 | `GET /api/users/me/expressions` | 自分の保存表現状態を取得 | なし | `{ items[] }` | Firebase匿名ログイン必須 |
-| `POST /api/worker/jobs/dispatch` | Cronから起動され、実行可能jobをロックして処理開始 | `cron secret header` | `{ picked, processed, failed }` | サーバー間認証（Vercel Cron Secret） |
-| `POST /api/worker/jobs/recover-stale` | stale lock jobの回収 | `cron secret header` | `{ recovered }` | サーバー間認証（Vercel Cron Secret） |
+| `POST /api/worker/jobs/dispatch` | 実行可能jobをロックして即時処理開始 | `worker or cron secret header` | `{ picked, processed, failed }` | サーバー間認証 |
+| `POST /api/worker/jobs/recover-stale` | stale lock jobの回収 | `worker or cron secret header` | `{ recovered }` | サーバー間認証 |
 
 ### 15.1 API実装状況（2026-02-27時点）
 
 - 実装済み:
+  - `POST /api/materials`
   - `POST /api/materials/:materialId/glossary`
-  - `GET /api/cron/jobs`
   - `POST /api/jobs/dispatch`
   - `POST /api/worker/material-pipeline`
   - `POST /api/worker/jobs/dispatch`
@@ -541,7 +542,7 @@ threshold判定（>=75）
 - 字幕タップ時の意味表示（動画固有glossaryキャッシュ）
 - 重要表現の提示（意味・使用箇所・場面想定例文）
 - 匿名ユーザーでの保存状態更新（saved/ignored/mastered）
-- Firestore jobs + Vercel Cron/Workerによる再実行可能パイプライン
+- Firestore jobs + サーバー即時実行による再実行可能パイプライン
 
 ### 16.2 MVP対象外（実装しない）
 
@@ -723,9 +724,62 @@ npm run typecheck
 
 1. GitリポジトリをVercelへ接続
 2. Environment Variablesに `.env.example` の全項目を登録
-3. `vercel.json` のCron設定を有効化
-4. デプロイ実行（Preview/Production）
-5. Productionで `/api/cron/jobs` が定期実行されることを確認
+3. デプロイ実行（Preview/Production）
+4. Hobbyプランでは Cron を使わず、`POST /api/materials` から即時処理されることを確認
+5. 定期回収が必要な場合のみ、外部スケジューラから `POST /api/worker/jobs/recover-stale` を呼ぶ
+
+### 23.3 外部スケジューラ（無料運用）
+
+Hobbyプランでは Vercel Cron を高頻度で使えないため、無料運用では外部スケジューラを使う。
+
+#### 推奨: cron-job.org
+
+用途:
+
+- `POST /api/worker/jobs/dispatch`
+- `POST /api/worker/jobs/recover-stale`
+
+設定例:
+
+1. `cron-job.org` に登録
+2. `Create cronjob` で以下を設定
+3. URL:
+   - `https://<your-app>.vercel.app/api/worker/jobs/dispatch`
+4. Method:
+   - `POST`
+5. Header:
+   - `Authorization: Bearer <WORKER_SECRET>`
+   - `Content-Type: application/json`
+6. Body:
+
+```json
+{
+  "limit": 5
+}
+```
+
+7. 実行間隔:
+   - まずは `5分ごと` を推奨
+
+stale lock回収用に、別ジョブでもう1本追加する:
+
+- URL: `https://<your-app>.vercel.app/api/worker/jobs/recover-stale`
+- Method: `POST`
+- Header: `Authorization: Bearer <WORKER_SECRET>`
+
+#### 代替: GitHub Actions
+
+- 最短 `5分ごと`
+- `.github/workflows/worker-dispatch.yml` をそのまま使える
+- GitHub Secrets に以下を設定:
+  - `APP_BASE_URL`
+  - `WORKER_SECRET`
+
+#### 代替: Cloudflare Workers Cron
+
+- Freeプランでも利用可能
+- Workerから Vercel の `dispatch/recover-stale` を叩くだけに留める
+- Cloudflare 側で重い処理は持たない
 
 ---
 

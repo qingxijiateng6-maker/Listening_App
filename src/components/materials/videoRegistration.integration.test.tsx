@@ -4,27 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoRegistrationForm } from "@/components/materials/VideoRegistrationForm";
 
 const pushMock = vi.fn();
-const addDocMock = vi.fn();
-const getDocsMock = vi.fn();
-const getDocMock = vi.fn();
-const setDocMock = vi.fn();
+const fetchMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: pushMock,
   }),
-}));
-
-vi.mock("firebase/firestore", () => ({
-  addDoc: (...args: unknown[]) => addDocMock(...args),
-  doc: (...args: unknown[]) => ({ path: args.join("/") }),
-  getDocs: (...args: unknown[]) => getDocsMock(...args),
-  getDoc: (...args: unknown[]) => getDocMock(...args),
-  setDoc: (...args: unknown[]) => setDocMock(...args),
-  query: (...args: unknown[]) => args,
-  where: (...args: unknown[]) => args,
-  limit: (value: number) => value,
-  Timestamp: { now: () => ({ toMillis: () => Date.now() }) },
 }));
 
 vi.mock("@/lib/firebase/auth", () => ({
@@ -39,24 +24,20 @@ vi.mock("@/lib/youtube", () => ({
   isPubliclyAccessibleYouTubeVideo: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock("@/lib/firebase/firestore", () => ({
-  materialsCollection: vi.fn(() => ({ path: "materials" })),
-  jobsCollection: vi.fn(() => ({ path: "jobs" })),
-}));
-
 describe("Video registration integration", () => {
   beforeEach(() => {
     pushMock.mockReset();
-    addDocMock.mockReset();
-    getDocsMock.mockReset();
-    getDocMock.mockReset();
-    setDocMock.mockReset();
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
   });
 
   it("reuses existing material and avoids duplicate material/job creation", async () => {
-    getDocsMock.mockResolvedValueOnce({
-      empty: false,
-      docs: [{ id: "existing-mat-1" }],
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        materialId: "existing-mat-1",
+        reused: true,
+      }),
     });
 
     render(<VideoRegistrationForm />);
@@ -67,17 +48,19 @@ describe("Video registration integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "教材を作成" }));
 
     await waitFor(() => {
-      expect(addDocMock).not.toHaveBeenCalled();
-      expect(setDocMock).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(pushMock).toHaveBeenCalledWith("/materials/existing-mat-1");
     });
   });
 
-  it("creates material + queued job and routes to learning page", async () => {
-    addDocMock.mockResolvedValueOnce({ id: "mat1" });
-    getDocsMock.mockResolvedValueOnce({ empty: true, docs: [] });
-    getDocMock.mockResolvedValueOnce({ exists: () => false });
-    setDocMock.mockResolvedValueOnce(undefined);
+  it("creates material via API and routes to learning page", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        materialId: "mat1",
+        reused: false,
+      }),
+    });
 
     render(<VideoRegistrationForm />);
 
@@ -87,8 +70,12 @@ describe("Video registration integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "教材を作成" }));
 
     await waitFor(() => {
-      expect(addDocMock).toHaveBeenCalledTimes(1);
-      expect(setDocMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/materials",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
       expect(pushMock).toHaveBeenCalledWith("/materials/mat1");
     });
   });
