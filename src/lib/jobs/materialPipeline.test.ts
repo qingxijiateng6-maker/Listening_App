@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { ServerLlmError } from "@/lib/server/llm/errors";
 
 const getAdminDbMock = vi.fn();
 const fetchCaptionsMock = vi.fn();
+const generateScenarioExampleWithOpenAIMock = vi.fn();
+const reevaluateExpressionWithOpenAIMock = vi.fn();
+const isOpenAIEnabledMock = vi.fn(() => false);
 
 let timestampCounter = 0;
 
@@ -29,6 +33,14 @@ vi.mock("@/lib/jobs/materialPipelineCaptions", async () => {
   };
 });
 
+vi.mock("@/lib/llm/openai", () => ({
+  generateScenarioExampleWithOpenAI: (...args: Parameters<typeof generateScenarioExampleWithOpenAIMock>) =>
+    generateScenarioExampleWithOpenAIMock(...args),
+  reevaluateExpressionWithOpenAI: (...args: Parameters<typeof reevaluateExpressionWithOpenAIMock>) =>
+    reevaluateExpressionWithOpenAIMock(...args),
+  isOpenAIEnabled: () => isOpenAIEnabledMock(),
+}));
+
 import {
   EXPRESSION_THRESHOLD,
   decideAcceptance,
@@ -53,6 +65,10 @@ describe("pipeline failure scenarios", () => {
     timestampCounter = 0;
     getAdminDbMock.mockReset();
     fetchCaptionsMock.mockReset();
+    generateScenarioExampleWithOpenAIMock.mockReset();
+    reevaluateExpressionWithOpenAIMock.mockReset();
+    isOpenAIEnabledMock.mockReset();
+    isOpenAIEnabledMock.mockReturnValue(false);
   });
 
   it("handles no subtitles (empty segments) without crash", () => {
@@ -460,5 +476,261 @@ describe("pipeline failure scenarios", () => {
       ["seg-0001", { startMs: 0, endMs: 1500, text: "Move forward" }],
       ["seg-0002", { startMs: 2000, endMs: 3200, text: "Take ownership" }],
     ]);
+  });
+
+  it("stores structured reeval data from openai", async () => {
+    isOpenAIEnabledMock.mockReturnValue(true);
+    reevaluateExpressionWithOpenAIMock.mockResolvedValue({
+      decision: "accept",
+      reasonShort: "会議でも汎用的で自然",
+      meaningJa: "主体的に責任を持つこと",
+    });
+
+    const pipelineState: {
+      candidates: Array<Record<string, unknown>>;
+      accepted: Array<Record<string, unknown>>;
+      updatedAt: { marker: string };
+    } = {
+      candidates: [
+        {
+          expressionText: "take ownership",
+          occurrences: [{ startMs: 0, endMs: 1000, segmentId: "seg-1" }],
+          flagsFinal: [],
+          axisScores: {
+            utility: 90,
+            portability: 88,
+            naturalness: 84,
+            c1_value: 83,
+            context_robustness: 86,
+          },
+          scoreFinal: 68,
+          decision: "pending",
+          meaningJa: "",
+          reasonShort: "",
+          scenarioExample: "",
+        },
+      ],
+      accepted: [],
+      updatedAt: { marker: "state-ts" },
+    };
+
+    const stateDocRef = {
+      get: vi.fn(async () => ({
+        exists: true,
+        data: () => pipelineState,
+      })),
+      set: vi.fn(async (value: Record<string, unknown>) => {
+        Object.assign(pipelineState, value);
+      }),
+    };
+
+    getAdminDbMock.mockReturnValue({
+      collection: () => ({
+        doc: () => ({
+          collection: () => ({
+            doc: () => stateDocRef,
+          }),
+        }),
+      }),
+    });
+
+    await runMaterialPipelineStep({
+      materialId: "mat-1",
+      pipelineVersion: "v1",
+      step: "reeval",
+    });
+
+    expect(reevaluateExpressionWithOpenAIMock).toHaveBeenCalledWith({
+      expressionText: "take ownership",
+      scoreFinal: 68,
+      flagsFinal: [],
+      axisScores: {
+        utility: 90,
+        portability: 88,
+        naturalness: 84,
+        c1_value: 83,
+        context_robustness: 86,
+      },
+      occurrenceCount: 1,
+    });
+    expect(pipelineState.candidates[0]).toMatchObject({
+      decision: "accept",
+      reeval: {
+        source: "openai",
+        decision: "accept",
+        reasonShort: "会議でも汎用的で自然",
+        meaningJa: "主体的に責任を持つこと",
+      },
+    });
+    expect(pipelineState.accepted).toHaveLength(1);
+  });
+
+  it("falls back gracefully when reeval returns invalid json or times out", async () => {
+    isOpenAIEnabledMock.mockReturnValue(true);
+    reevaluateExpressionWithOpenAIMock.mockRejectedValue(
+      new ServerLlmError("OpenAI returned invalid JSON.", "invalid_response"),
+    );
+
+    const pipelineState: {
+      candidates: Array<Record<string, unknown>>;
+      accepted: Array<Record<string, unknown>>;
+      updatedAt: { marker: string };
+    } = {
+      candidates: [
+        {
+          expressionText: "take ownership",
+          occurrences: [{ startMs: 0, endMs: 1000, segmentId: "seg-1" }],
+          flagsFinal: [],
+          axisScores: {
+            utility: 90,
+            portability: 88,
+            naturalness: 84,
+            c1_value: 83,
+            context_robustness: 86,
+          },
+          scoreFinal: EXPRESSION_THRESHOLD + 5,
+          decision: "pending",
+          meaningJa: "",
+          reasonShort: "",
+          scenarioExample: "",
+        },
+      ],
+      accepted: [],
+      updatedAt: { marker: "state-ts" },
+    };
+
+    const stateDocRef = {
+      get: vi.fn(async () => ({
+        exists: true,
+        data: () => pipelineState,
+      })),
+      set: vi.fn(async (value: Record<string, unknown>) => {
+        Object.assign(pipelineState, value);
+      }),
+    };
+
+    getAdminDbMock.mockReturnValue({
+      collection: () => ({
+        doc: () => ({
+          collection: () => ({
+            doc: () => stateDocRef,
+          }),
+        }),
+      }),
+    });
+
+    await runMaterialPipelineStep({
+      materialId: "mat-1",
+      pipelineVersion: "v1",
+      step: "reeval",
+    });
+
+    expect(pipelineState.candidates[0]).toMatchObject({
+      decision: "accept",
+      reeval: {
+        source: "fallback",
+        decision: "accept",
+        errorCode: "invalid_response",
+      },
+    });
+  });
+
+  it("generates examples only for accepted expressions", async () => {
+    isOpenAIEnabledMock.mockReturnValue(true);
+    generateScenarioExampleWithOpenAIMock.mockResolvedValue(
+      "We need to take ownership before the launch.",
+    );
+
+    const pipelineState: {
+      candidates: Array<Record<string, unknown>>;
+      accepted: Array<Record<string, unknown>>;
+      updatedAt: { marker: string };
+    } = {
+      candidates: [
+        {
+          expressionText: "take ownership",
+          occurrences: [{ startMs: 0, endMs: 1000, segmentId: "seg-1" }],
+          flagsFinal: [],
+          axisScores: {
+            utility: 90,
+            portability: 88,
+            naturalness: 84,
+            c1_value: 83,
+            context_robustness: 86,
+          },
+          scoreFinal: 80,
+          decision: "accept",
+          reeval: {
+            source: "openai",
+            decision: "accept",
+            reasonShort: "会議でも汎用的で自然",
+            meaningJa: "主体的に責任を持つこと",
+          },
+          meaningJa: "",
+          reasonShort: "",
+          scenarioExample: "",
+        },
+        {
+          expressionText: "single word",
+          occurrences: [{ startMs: 0, endMs: 1000, segmentId: "seg-2" }],
+          flagsFinal: ["rare_occurrence"],
+          axisScores: {
+            utility: 30,
+            portability: 30,
+            naturalness: 30,
+            c1_value: 30,
+            context_robustness: 30,
+          },
+          scoreFinal: 20,
+          decision: "reject",
+          meaningJa: "",
+          reasonShort: "",
+          scenarioExample: "",
+        },
+      ],
+      accepted: [
+        {
+          expressionText: "take ownership",
+        },
+      ],
+      updatedAt: { marker: "state-ts" },
+    };
+
+    const stateDocRef = {
+      get: vi.fn(async () => ({
+        exists: true,
+        data: () => pipelineState,
+      })),
+      set: vi.fn(async (value: Record<string, unknown>) => {
+        Object.assign(pipelineState, value);
+      }),
+    };
+
+    getAdminDbMock.mockReturnValue({
+      collection: () => ({
+        doc: () => ({
+          collection: () => ({
+            doc: () => stateDocRef,
+          }),
+        }),
+      }),
+    });
+
+    await runMaterialPipelineStep({
+      materialId: "mat-1",
+      pipelineVersion: "v1",
+      step: "examples",
+    });
+
+    expect(generateScenarioExampleWithOpenAIMock).toHaveBeenCalledTimes(1);
+    expect(generateScenarioExampleWithOpenAIMock).toHaveBeenCalledWith("take ownership");
+    expect(pipelineState.candidates[0]).toMatchObject({
+      meaningJa: "主体的に責任を持つこと",
+      reasonShort: "会議でも汎用的で自然",
+      scenarioExample: "We need to take ownership before the launch.",
+    });
+    expect(pipelineState.candidates[1]).toMatchObject({
+      scenarioExample: "",
+    });
   });
 });

@@ -11,6 +11,21 @@
 - DB: Firestore
 - 非同期処理: Firestore `jobs` + 登録API即時実行 + 外部スケジューラ + Worker API
 
+## 2.1 Firestore アクセス方針
+
+| パス | 直接 read | 直接 write | 運用メモ |
+| --- | --- | --- | --- |
+| `materials` | 許可 | 禁止 | 公開教材メタ。更新は server/admin のみ |
+| `materials/{materialId}/segments` | 許可 | 禁止 | 公開字幕 |
+| `materials/{materialId}/expressions` | 許可 | 禁止 | 公開重要表現 |
+| `materials/{materialId}/glossary` | 許可 | 禁止 | 公開キャッシュ。生成は API 経由 |
+| `jobs` | 禁止 | 禁止 | worker/admin 専用 |
+| `users/{uid}/expressions` | 本人のみ | 本人のみ | `status` と `updatedAt` のみ更新可能 |
+
+- Firestore Rules は `firestore.rules` で管理する
+- 主要な本番アクセスは Next.js API + `firebase-admin` 経由なので、Rules 変更だけでは API 認可は変わらない
+- `users/{uid}/expressions` の API 認可は現状 `resolveRequestUser()` に依存し、Firebase ID token 検証は未実装
+
 ## 3. 監視指標（KPI / SLO候補）
 
 ### 3.1 jobs成功率
@@ -115,12 +130,35 @@
    - `recover-stale` が 2xx を返す
    - Authorization header の設定ミスがない
 
+## 6.1 Firestore Rules 反映手順
+
+1. `firestore.rules` と `firebase.json` の差分を確認
+2. Firebase CLI で対象プロジェクトを選択
+3. `firebase deploy --only firestore:rules` を実行
+4. 反映後、Firestore Rules Playground または Emulator で以下を確認
+   - 未認証で `materials` 読み取り可
+   - 未認証で `jobs` 読み取り不可
+   - 未認証で `users/{uid}/expressions` 読み書き不可
+   - 本人 UID のみ `users/{uid}/expressions` 更新可
+5. 本番 API の疎通も別途確認
+   - `POST /api/materials` が 401/200 を期待通り返す
+   - `GET /api/users/me/expressions` が本人のみ取得できる
+
+## 6.2 Firestore Rules 変更時のレビュー観点
+
+- `materials` / `segments` / `expressions` / `glossary` にクライアント write が混入していないか
+- `jobs` が誤って公開されていないか
+- `users/{uid}/expressions` に本人以外の read/write 経路がないか
+- API 実装の認可と README 記載がずれていないか
+
 ## 7. 既知の制約
 
 - YouTube公開動画以外は非対応
 - Worker実行時間制約により、長尺動画で再試行回数が増える場合がある
 - 現在は最小監視構成で、専用ダッシュボードは未実装
 - GitHub Actions の schedule は最短5分で、時刻遅延が起きることがある
+- Firestore Rules は直接 SDK アクセスにのみ適用され、`firebase-admin` 経由の API 書き込みは対象外
+- サーバー認可は暫定的に `x-user-id` ヘッダーフォールバックを含み、Firebase ID token の厳密検証は未実装
 
 ## 8. 今後の拡張
 

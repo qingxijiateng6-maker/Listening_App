@@ -4,6 +4,7 @@ import { getAdminDb } from "@/lib/firebase/admin";
 import { MATERIAL_PIPELINE_VERSION } from "@/lib/constants";
 import { buildMaterialPipelineJobId } from "@/lib/jobs/idempotency";
 import { createWorkerId, enqueueMaterialPipelineJob, runJobToCompletion } from "@/lib/jobs/queue";
+import { resolveRequestUser } from "@/lib/server/requestUser";
 import { isPubliclyAccessibleYouTubeVideo, parseYouTubeUrl } from "@/lib/youtube";
 
 export const runtime = "nodejs";
@@ -25,6 +26,11 @@ type MaterialRecord = {
 };
 
 export async function POST(request: NextRequest) {
+  const user = await resolveRequestUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = (await request.json()) as CreateMaterialBody;
   const parsed = parseYouTubeUrl(body.youtubeUrl ?? "");
   if (!parsed) {

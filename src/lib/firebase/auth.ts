@@ -12,14 +12,50 @@ import {
 import { getFirebaseClientError, tryGetFirebaseApp } from "@/lib/firebase/client";
 
 let firebaseAuthError: Error | null = null;
+const GOOGLE_LINK_FALLBACK_ERROR_CODES = new Set([
+  "auth/credential-already-in-use",
+  "auth/provider-already-linked",
+]);
+
+export type GoogleSignInResult = {
+  user: User;
+  method: "linked" | "signed_in";
+};
 
 function setFirebaseAuthError(error: Error | null): void {
   firebaseAuthError = error;
 }
 
+function getFirebaseAuthActionErrorMessage(error: AuthError | Error): string {
+  const code = "code" in error ? error.code : undefined;
+
+  switch (code) {
+    case "auth/popup-closed-by-user":
+      return "Googleログインがキャンセルされました。";
+    case "auth/popup-blocked":
+      return "Googleログインのポップアップがブロックされました。ブラウザ設定を確認してください。";
+    case "auth/network-request-failed":
+      return "ネットワークエラーのためGoogleログインに失敗しました。";
+    case "auth/account-exists-with-different-credential":
+      return "別のログイン方法で作成済みのアカウントです。";
+    default:
+      return error.message || "認証を初期化できません。";
+  }
+}
+
 function toFirebaseAuthError(error: unknown): Error {
   if (error instanceof Error) {
-    return error;
+    return new Error(getFirebaseAuthActionErrorMessage(error));
+  }
+  if (error && typeof error === "object") {
+    const authError = error as Partial<AuthError>;
+    return new Error(
+      getFirebaseAuthActionErrorMessage({
+        name: authError.name ?? "FirebaseAuthError",
+        message: authError.message ?? "",
+        code: authError.code ?? "",
+      } as AuthError),
+    );
   }
 
   return new Error("認証を初期化できません。");
@@ -105,7 +141,7 @@ export function subscribeAuthState(callback: (user: User | null) => void): Unsub
   }
 }
 
-export async function signInWithGoogle(): Promise<User> {
+export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   const auth = getFirebaseAuth();
   if (!auth) {
     throw getFirebaseAuthError() ?? new Error("認証を初期化できません。");
@@ -118,29 +154,43 @@ export async function signInWithGoogle(): Promise<User> {
     try {
       const credential = await linkWithPopup(auth.currentUser, provider);
       setFirebaseAuthError(null);
-      return credential.user;
+      return {
+        user: credential.user,
+        method: "linked",
+      };
     } catch (error) {
       const authError = error as AuthError;
-      if (
-        authError.code === "auth/credential-already-in-use" ||
-        authError.code === "auth/provider-already-linked"
-      ) {
-        const credential = await signInWithPopup(auth, provider);
-        setFirebaseAuthError(null);
-        return credential.user;
+      if (GOOGLE_LINK_FALLBACK_ERROR_CODES.has(authError.code)) {
+        try {
+          const credential = await signInWithPopup(auth, provider);
+          setFirebaseAuthError(null);
+          return {
+            user: credential.user,
+            method: "signed_in",
+          };
+        } catch (signInError) {
+          const nextError = toFirebaseAuthError(signInError);
+          setFirebaseAuthError(nextError);
+          throw nextError;
+        }
       }
 
-      setFirebaseAuthError(toFirebaseAuthError(error));
-      throw error;
+      const nextError = toFirebaseAuthError(error);
+      setFirebaseAuthError(nextError);
+      throw nextError;
     }
   }
 
   try {
     const credential = await signInWithPopup(auth, provider);
     setFirebaseAuthError(null);
-    return credential.user;
+    return {
+      user: credential.user,
+      method: "signed_in",
+    };
   } catch (error) {
-    setFirebaseAuthError(toFirebaseAuthError(error));
-    throw error;
+    const nextError = toFirebaseAuthError(error);
+    setFirebaseAuthError(nextError);
+    throw nextError;
   }
 }

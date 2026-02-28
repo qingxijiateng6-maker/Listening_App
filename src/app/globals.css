@@ -20,6 +20,142 @@ main {
   padding: 2rem 1rem;
 }
 
+.learningScreen {
+  display: grid;
+  gap: 1rem;
+}
+
+.learningScreenHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.learningScreenHeader h1 {
+  margin: 0;
+}
+
+.learningScreenLead {
+  margin: 0.45rem 0 0;
+  color: #58677b;
+}
+
+.learningScreenMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.learningMetaChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.65rem;
+  border-radius: 999px;
+  background: #e8eef8;
+  border: 1px solid #c7d4e8;
+  color: #365072;
+  font-size: 0.8rem;
+}
+
+.learningLayout {
+  display: grid;
+  gap: 1rem;
+}
+
+.learningSection,
+.learningHeroSection,
+.learningStateCard,
+.learningEmptyCard {
+  background: #ffffff;
+  border: 1px solid #d9e0ea;
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.learningSectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.learningSectionHeader.compact {
+  margin-bottom: 0.75rem;
+}
+
+.learningSectionHeader h2,
+.learningSectionHeader h3,
+.learningStateCard h2,
+.learningEmptyCard h3 {
+  margin: 0;
+}
+
+.learningSectionHeader p,
+.learningStateCard p,
+.learningEmptyCard p {
+  margin: 0.35rem 0 0;
+}
+
+.learningStateCard.loading {
+  background: linear-gradient(135deg, #f7fbff 0%, #eef4fc 100%);
+}
+
+.learningStateCard.error,
+.learningInlineError {
+  background: #fdecea;
+  border: 1px solid #f4b8b3;
+  color: #8a231c;
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+}
+
+.learningStateCard.empty,
+.learningEmptyCard {
+  background: #fafcff;
+}
+
+.learningEmptyCard.compact {
+  padding: 0.7rem 0.8rem;
+}
+
+.activeSubtitleSummary {
+  min-width: min(320px, 100%);
+  flex: 1 1 280px;
+  background: linear-gradient(135deg, #eef4ff 0%, #e4f0ff 100%);
+  border: 1px solid #c8daf7;
+  border-radius: 12px;
+  padding: 0.8rem 0.95rem;
+}
+
+.activeSubtitleSummary.idle {
+  background: #f7f9fd;
+  border-color: #d9e0ea;
+}
+
+.activeSubtitleSummary p {
+  margin: 0.35rem 0 0;
+  font-weight: 600;
+}
+
+.activeSubtitleLabel {
+  display: inline-flex;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: #1f5fbf;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.segmentList {
+  display: grid;
+  gap: 0.5rem;
+}
+
 section {
   background: #ffffff;
   border: 1px solid #d9e0ea;
@@ -81,57 +217,240 @@ input[disabled] {
 }
 
 .segmentButton {
-  display: block;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.6rem;
+  align-items: center;
   width: 100%;
   text-align: left;
-  margin-bottom: 0.5rem;
   background: #eef3fa;
   color: #1b2430;
   border: 1px solid #d0daea;
+  padding: 0.8rem 0.9rem;
 }
 
 .segmentButton.active {
   background: #d9e7fb;
   border-color: #96b5e6;
+  box-shadow: inset 0 0 0 1px rgba(31, 95, 191, 0.15);
+}
+
+.segmentButton.selected {
+  background: #f8fbff;
+  border-color: #7ea6e2;
+}
+
+.segmentTime {
+  color: #4f6483;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.segmentText {
+  min-width: 0;
+}
+
+.segmentStateText {
+  color: #1f5fbf;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .subtitleTapPanel {
   margin-top: 0.75rem;
-  padding: 0.75rem;
-  border-radius: 8px;
+  padding: 0.95rem;
+  border-radius: 12px;
   background: #f7f9fd;
   border: 1px solid #d9e0ea;
 }
 
 .expressionCard {
   border: 1px solid #d9e0ea;
-  border-radius: 10px;
-  padding: 0.9rem;
-  margin-bottom: 0.8rem;
+  border-radius: 12px;
+  padding: 1rem;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+}
+
+.expressionGrid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.expressionCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.expressionCardHeader h3 {
+  margin: 0;
+}
+
+.expressionReason {
+  margin: 0.35rem 0 0;
+  color: #56697f;
+  font-size: 0.86rem;
+}
+
+.expressionStatusBadge {
+  display: inline-flex;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: #edf1f6;
+  color: #516174;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.expressionStatusBadge.saved {
+  background: #e7f1ff;
+  color: #1f5fbf;
+}
+
+.expressionStatusBadge.ignored {
+  background: #fbeaea;
+  color: #a33b34;
+}
+
+.expressionStatusBadge.mastered {
+  background: #e8f6eb;
+  color: #1e8e3e;
+}
+
+.expressionStatusBadge.unset {
+  background: #edf1f6;
+  color: #516174;
+}
+
+.expressionDetails {
+  margin: 0.9rem 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.expressionDetails dt {
+  font-size: 0.78rem;
+  color: #58677b;
+  margin-bottom: 0.2rem;
+}
+
+.expressionDetails dd {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.expressionCardActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.expressionUpdating {
+  margin: 0;
+  color: #56697f;
+  font-size: 0.84rem;
 }
 
 .statusActions button {
   margin-right: 0.4rem;
 }
 
-.wordButtons {
+.statusActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
   margin-top: 0.8rem;
 }
 
+.statusActions button {
+  background: #fff;
+  color: #1f5fbf;
+  border: 1px solid #9db8e0;
+}
+
+.statusActions button.active {
+  background: #1f5fbf;
+  color: #fff;
+  border-color: #1f5fbf;
+}
+
+.wordButtons {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .wordButtons button {
-  margin-right: 0.4rem;
-  margin-bottom: 0.4rem;
   background: #ffffff;
   color: #1f5fbf;
   border: 1px solid #9db8e0;
 }
 
+.wordButtons button.selected {
+  background: #1f5fbf;
+  color: #fff;
+}
+
 .glossaryPanel {
   margin-top: 0.8rem;
-  padding: 0.7rem;
+  padding: 0.9rem;
   background: #eef5ff;
   border: 1px solid #c2d8f7;
-  border-radius: 8px;
+  border-radius: 12px;
+}
+
+.glossaryPanel.loading {
+  background: #f5f8fd;
+}
+
+.glossaryPanel.error {
+  background: #fff3f1;
+  border-color: #f3c1bc;
+}
+
+.glossaryHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.glossaryHeader h3 {
+  margin: 0;
+}
+
+.glossaryHeader p {
+  margin: 0.3rem 0 0;
+  color: #50647f;
+}
+
+.glossaryStatusBadge {
+  display: inline-flex;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(31, 95, 191, 0.12);
+  color: #1f5fbf;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.glossaryMeaning {
+  margin: 0.75rem 0 0;
+  line-height: 1.55;
+}
+
+.glossaryMeta,
+.glossaryEmptyMessage {
+  margin: 0.55rem 0 0;
+  color: #61738b;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 
 .youtubePlayerContainer {
@@ -142,6 +461,16 @@ input[disabled] {
   border-radius: 10px;
   overflow: hidden;
   background: #000;
+}
+
+.secondaryActionButton {
+  background: #fff;
+  color: #1f5fbf;
+  border: 1px solid #9db8e0;
+}
+
+.learningBackLink {
+  margin: 0;
 }
 
 .youtubePlayerFrame {
@@ -157,7 +486,43 @@ input[disabled] {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.3rem;
+  gap: 0.35rem;
+  max-width: min(360px, calc(100vw - 20px));
+}
+
+.authStatusBadge,
+.authStatusText,
+.googleLoginDone,
+.authUid,
+.authError {
+  width: 100%;
+}
+
+.authStatusBadge {
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.authStatusBadge.anonymous {
+  background: #5f6368;
+}
+
+.authStatusBadge.authenticated {
+  background: #1e8e3e;
+}
+
+.authStatusText {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #d7dfea;
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
 }
 
 .googleLoginButton {
@@ -172,9 +537,10 @@ input[disabled] {
 .googleLoginDone {
   background: #1e8e3e;
   color: #fff;
-  border-radius: 999px;
-  padding: 0.45rem 0.8rem;
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
   font-size: 0.85rem;
+  text-align: center;
 }
 
 .authUid {
@@ -183,14 +549,64 @@ input[disabled] {
   border-radius: 8px;
   padding: 0.2rem 0.5rem;
   font-size: 0.7rem;
+  overflow-wrap: anywhere;
 }
 
 .authError {
-  max-width: 280px;
   color: #b3261e;
   background: #fdecea;
   border: 1px solid #f4b8b3;
   border-radius: 8px;
-  padding: 0.3rem 0.5rem;
+  padding: 0.45rem 0.6rem;
   font-size: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  body {
+    font-size: 15px;
+  }
+
+  main {
+    padding: 1rem 0.85rem 1.5rem;
+  }
+
+  .learningSection,
+  .learningHeroSection,
+  .learningStateCard,
+  .learningEmptyCard,
+  .subtitleTapPanel {
+    padding: 0.85rem;
+  }
+
+  .segmentButton {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+
+  .segmentStateText {
+    margin-top: -0.15rem;
+  }
+
+  .expressionCardHeader,
+  .glossaryHeader,
+  .expressionCardActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .statusActions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .statusActions button {
+    margin-right: 0;
+  }
+
+  .authTopRight {
+    position: static;
+    align-items: stretch;
+    max-width: none;
+    padding: 0.75rem 0.85rem 0;
+  }
 }

@@ -72,7 +72,7 @@ describe("registration -> queued job -> learning integration", () => {
   });
 
   it("registers video through API, then renders learning screen after completion", async () => {
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
       if (url.endsWith("/api/materials")) {
@@ -119,6 +119,15 @@ describe("registration -> queued job -> learning integration", () => {
               expressionId: row.id,
               ...row.data,
             })),
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/users/me/expressions") && init?.method === "GET") {
+        return {
+          ok: true,
+          json: async () => ({
+            expressions: [],
           }),
         };
       }
@@ -176,7 +185,7 @@ describe("registration -> queued job -> learning integration", () => {
     await waitFor(() => {
       expect(screen.getByText("status: ready")).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "take ownership" })).toBeInTheDocument();
-      expect(screen.getByText("意味: 責任を持つ")).toBeInTheDocument();
+      expect(screen.getByText("責任を持つ")).toBeInTheDocument();
     });
   });
 });

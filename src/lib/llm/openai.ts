@@ -1,15 +1,102 @@
 import { getDefaultServerLlmClient } from "@/lib/server/llm/client";
+import { ServerLlmError } from "@/lib/server/llm/errors";
 import { isOpenAIConfigured } from "@/lib/server/llm/openaiProvider";
+
+type ReevalDecision = "accept" | "reject";
+
+export type OpenAIExpressionReevalInput = {
+  expressionText: string;
+  scoreFinal: number;
+  flagsFinal: string[];
+  axisScores: {
+    utility: number;
+    portability: number;
+    naturalness: number;
+    c1_value: number;
+    context_robustness: number;
+  };
+  occurrenceCount: number;
+};
+
+export type OpenAIExpressionReevalResult = {
+  decision: ReevalDecision;
+  reasonShort: string;
+  meaningJa: string;
+};
 
 export function isOpenAIEnabled(): boolean {
   return isOpenAIConfigured();
 }
 
+function parseJsonObject(rawText: string): unknown {
+  const trimmed = rawText.trim();
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const jsonText = fencedMatch?.[1]?.trim() ?? trimmed;
+
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    throw new ServerLlmError("OpenAI returned invalid JSON.", "invalid_response");
+  }
+}
+
+function parseReevalResult(rawText: string): OpenAIExpressionReevalResult {
+  const parsed = parseJsonObject(rawText);
+  if (!parsed || typeof parsed !== "object") {
+    throw new ServerLlmError("OpenAI returned invalid reeval payload.", "invalid_response");
+  }
+
+  const decision = "decision" in parsed ? parsed.decision : undefined;
+  const reasonShort = "reasonShort" in parsed ? parsed.reasonShort : undefined;
+  const meaningJa = "meaningJa" in parsed ? parsed.meaningJa : undefined;
+
+  if (decision !== "accept" && decision !== "reject") {
+    throw new ServerLlmError("OpenAI returned an invalid reeval decision.", "invalid_response");
+  }
+  if (typeof reasonShort !== "string" || !reasonShort.trim()) {
+    throw new ServerLlmError("OpenAI returned an empty reeval reason.", "invalid_response");
+  }
+  if (typeof meaningJa !== "string" || !meaningJa.trim()) {
+    throw new ServerLlmError("OpenAI returned an empty Japanese meaning.", "invalid_response");
+  }
+
+  return {
+    decision,
+    reasonShort: reasonShort.trim(),
+    meaningJa: meaningJa.trim(),
+  };
+}
+
 export async function generateScenarioExampleWithOpenAI(expressionText: string): Promise<string> {
-  return getDefaultServerLlmClient().generateText({
-    systemPrompt: "You create one concise, natural English sentence for advanced learners.",
-    userPrompt: `Create exactly one sentence using this expression naturally: "${expressionText}".`,
+  const content = await getDefaultServerLlmClient().generateText({
+    systemPrompt:
+      "You create one concise, natural English sentence for advanced learners. Return exactly one sentence only.",
+    userPrompt: [
+      `Create exactly one sentence that uses this adopted expression verbatim: "${expressionText}".`,
+      "Do not use quotation marks.",
+      "Do not add explanations, alternatives, or multiple sentences.",
+    ].join(" "),
   });
+
+  return content.trim();
+}
+
+export async function reevaluateExpressionWithOpenAI(
+  input: OpenAIExpressionReevalInput,
+): Promise<OpenAIExpressionReevalResult> {
+  const content = await getDefaultServerLlmClient().generateText({
+    systemPrompt: [
+      "You review candidate English expressions for a Japanese listening-learning app.",
+      "Return exactly one JSON object with keys decision, reasonShort, meaningJa.",
+      'decision must be either "accept" or "reject".',
+      "reasonShort must be concise Japanese.",
+      "meaningJa must be concise Japanese explaining the expression's meaning in context.",
+    ].join(" "),
+    userPrompt: JSON.stringify(input),
+    temperature: 0,
+  });
+
+  return parseReevalResult(content);
 }
 
 export async function generateGlossaryMeaningJaWithOpenAI(surfaceText: string): Promise<string> {

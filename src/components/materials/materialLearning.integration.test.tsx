@@ -105,7 +105,7 @@ describe("Learning screen integration", () => {
       expect(screen.getByText("status: ready")).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "take ownership" })).toBeInTheDocument();
       expect(screen.getByText(/責任を持つ/)).toBeInTheDocument();
-      expect(screen.getByText("status: saved")).toBeInTheDocument();
+      expect(screen.getByText("保存済み")).toBeInTheDocument();
     });
   });
 
@@ -174,15 +174,16 @@ describe("Learning screen integration", () => {
     render(<MaterialLearningScreen materialId="mat1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /\[1\.0\] Don't stop now/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /\[1\.0s\].*Don't stop now.*ジャンプ/ })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /\[1\.0\] Don't stop now/ }));
+    fireEvent.click(screen.getByRole("button", { name: /\[1\.0s\].*Don't stop now.*ジャンプ/ }));
     fireEvent.click(screen.getByRole("button", { name: "don't" }));
 
     await waitFor(() => {
       expect(screen.getByText("語句: don't")).toBeInTheDocument();
       expect(screen.getByText("do not の短縮形")).toBeInTheDocument();
+      expect(screen.getByText(/source: generated \/ api: 12ms \/ total:/)).toBeInTheDocument();
     });
   });
 
@@ -279,7 +280,7 @@ describe("Learning screen integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "習得" }));
 
     await waitFor(() => {
-      expect(screen.getByText("status: mastered")).toBeInTheDocument();
+      expect(screen.getByText("習得済み")).toBeInTheDocument();
     });
   });
 
@@ -371,6 +372,64 @@ describe("Learning screen integration", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("update failed");
     });
-    expect(screen.getByText("status: unset")).toBeInTheDocument();
+    expect(screen.getByText("未設定")).toBeInTheDocument();
+  });
+
+  it("shows empty states when subtitles and expressions are unavailable", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/api/materials/mat1")) {
+        return {
+          ok: true,
+          json: async () => ({
+            material: {
+              materialId: "mat1",
+              youtubeId: "dQw4w9WgXcQ",
+              status: "processing",
+              pipelineVersion: "v1",
+            },
+            status: "processing",
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/materials/mat1/segments")) {
+        return {
+          ok: true,
+          json: async () => ({
+            segments: [],
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/materials/mat1/expressions")) {
+        return {
+          ok: true,
+          json: async () => ({
+            expressions: [],
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/users/me/expressions") && init?.method === "GET") {
+        return {
+          ok: true,
+          json: async () => ({
+            expressions: [],
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<MaterialLearningScreen materialId="mat1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("字幕がまだありません")).toBeInTheDocument();
+      expect(screen.getByText("重要表現はまだありません")).toBeInTheDocument();
+      expect(screen.getByText("字幕を選択してください")).toBeInTheDocument();
+    });
   });
 });

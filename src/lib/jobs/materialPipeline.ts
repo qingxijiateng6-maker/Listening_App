@@ -7,7 +7,12 @@ import {
   type CaptionFetchResult,
   type FormattedSegment,
 } from "@/lib/jobs/materialPipelineCaptions";
-import { generateScenarioExampleWithOpenAI, isOpenAIEnabled } from "@/lib/llm/openai";
+import {
+  generateScenarioExampleWithOpenAI,
+  isOpenAIEnabled,
+  reevaluateExpressionWithOpenAI,
+} from "@/lib/llm/openai";
+import { ServerLlmError } from "@/lib/server/llm/errors";
 import type { JobStep } from "@/types/domain";
 
 const THRESHOLD = 75;
@@ -81,6 +86,13 @@ type Candidate = {
   axisScores: AxisScores;
   scoreFinal: number;
   decision: "pending" | "accept" | "reject";
+  reeval?: {
+    source: "heuristic" | "openai" | "fallback";
+    decision: "accept" | "reject";
+    reasonShort: string;
+    meaningJa: string;
+    errorCode?: ServerLlmError["code"];
+  };
   meaningJa: string;
   reasonShort: string;
   scenarioExample: string;
@@ -149,6 +161,35 @@ async function buildScenarioExampleAsync(expressionText: string): Promise<string
   } catch {
     return buildScenarioExample(expressionText);
   }
+}
+
+function buildHeuristicReeval(candidate: Candidate): NonNullable<Candidate["reeval"]> {
+  const decision: NonNullable<Candidate["reeval"]>["decision"] = decideAcceptance(
+    candidate.scoreFinal,
+    candidate.flagsFinal,
+  )
+    ? "accept"
+    : "reject";
+
+  return {
+    source: "heuristic",
+    decision,
+    reasonShort: buildReason(candidate),
+    meaningJa: buildMeaningJa(candidate.expressionText),
+  };
+}
+
+function buildFallbackReeval(
+  candidate: Candidate,
+  error: unknown,
+): NonNullable<Candidate["reeval"]> {
+  const heuristic = buildHeuristicReeval(candidate);
+
+  return {
+    ...heuristic,
+    source: "fallback",
+    errorCode: error instanceof ServerLlmError ? error.code : undefined,
+  };
 }
 
 function hasUnsafeTerm(text: string): boolean {
@@ -497,12 +538,42 @@ async function runScore(materialId: string, pipelineVersion: string): Promise<vo
 
 async function runReeval(materialId: string, pipelineVersion: string): Promise<void> {
   const state = await readState(materialId, pipelineVersion);
-  const updated = state.candidates.map((candidate) => {
-    const rejectUnsafe = candidate.flagsFinal.includes("unsafe_or_inappropriate");
-    const accepted = !rejectUnsafe && candidate.scoreFinal >= THRESHOLD;
-    const decision: Candidate["decision"] = accepted ? "accept" : "reject";
-    return { ...candidate, decision };
-  });
+  const updated = await Promise.all(
+    state.candidates.map(async (candidate) => {
+      if (!isOpenAIEnabled()) {
+        const reeval = buildHeuristicReeval(candidate);
+        return { ...candidate, decision: reeval.decision, reeval };
+      }
+
+      try {
+        const llmReeval = await reevaluateExpressionWithOpenAI({
+          expressionText: candidate.expressionText,
+          scoreFinal: candidate.scoreFinal,
+          flagsFinal: candidate.flagsFinal,
+          axisScores: candidate.axisScores,
+          occurrenceCount: candidate.occurrences.length,
+        });
+        const decision: Candidate["decision"] = candidate.flagsFinal.includes("unsafe_or_inappropriate")
+          ? "reject"
+          : llmReeval.decision;
+
+        return {
+          ...candidate,
+          decision,
+          reeval: {
+            source: "openai" as const,
+            decision,
+            reasonShort: llmReeval.reasonShort,
+            meaningJa: llmReeval.meaningJa,
+          },
+        };
+      } catch (error) {
+        const reeval = buildFallbackReeval(candidate, error);
+        return { ...candidate, decision: reeval.decision, reeval };
+      }
+    }),
+  );
+
   const accepted = updated.filter((candidate) => candidate.decision === "accept");
   await writeState(materialId, pipelineVersion, { ...state, candidates: updated, accepted, updatedAt: nowTs() });
 }
@@ -527,8 +598,8 @@ async function runExamples(materialId: string, pipelineVersion: string): Promise
     }
     return {
       ...candidate,
-      meaningJa: buildMeaningJa(candidate.expressionText),
-      reasonShort: buildReason(candidate),
+      meaningJa: candidate.reeval?.meaningJa ?? buildMeaningJa(candidate.expressionText),
+      reasonShort: candidate.reeval?.reasonShort ?? buildReason(candidate),
       scenarioExample: exampleMap.get(candidate.expressionText) ?? buildScenarioExample(candidate.expressionText),
     };
   });
