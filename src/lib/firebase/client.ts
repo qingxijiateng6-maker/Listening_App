@@ -87,7 +87,7 @@ function initializeFirebaseApp(): FirebaseApp | null {
   }
 }
 
-export function getFirebaseApp(): FirebaseApp | null {
+function getOrInitializeFirebaseApp(): FirebaseApp | null {
   if (!firebaseAppState.initialized) {
     firebaseAppState.app = initializeFirebaseApp();
     firebaseAppState.initialized = true;
@@ -96,9 +96,22 @@ export function getFirebaseApp(): FirebaseApp | null {
   return firebaseAppState.app;
 }
 
+export function tryGetFirebaseApp(): FirebaseApp | null {
+  return getOrInitializeFirebaseApp();
+}
+
+export function getFirebaseApp(): FirebaseApp {
+  const app = getOrInitializeFirebaseApp();
+  if (!app) {
+    throw getFirebaseClientError() ?? new Error("Firebase初期化に失敗しました。");
+  }
+
+  return app;
+}
+
 export function getFirebaseClientError(): Error | null {
   if (!firebaseAppState.initialized) {
-    getFirebaseApp();
+    getOrInitializeFirebaseApp();
   }
 
   return firebaseAppState.error;

@@ -1,6 +1,5 @@
 import {
   GoogleAuthProvider,
-  type Auth,
   getAuth,
   linkWithPopup,
   onAuthStateChanged,
@@ -10,7 +9,7 @@ import {
   type Unsubscribe,
   type User,
 } from "firebase/auth";
-import { getFirebaseApp, getFirebaseClientError } from "@/lib/firebase/client";
+import { getFirebaseClientError, tryGetFirebaseApp } from "@/lib/firebase/client";
 
 let firebaseAuthError: Error | null = null;
 
@@ -27,7 +26,7 @@ function toFirebaseAuthError(error: unknown): Error {
 }
 
 export function getFirebaseAuth() {
-  const app = getFirebaseApp();
+  const app = tryGetFirebaseApp();
   if (!app) {
     const clientError = getFirebaseClientError() ?? new Error("認証を初期化できません。");
     setFirebaseAuthError(clientError);

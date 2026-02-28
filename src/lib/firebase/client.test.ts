@@ -46,9 +46,9 @@ describe("getFirebaseApp", () => {
   it("returns null and exposes a short error when env vars are missing", async () => {
     getAppsMock.mockReturnValue([]);
 
-    const { getFirebaseApp, getFirebaseClientError } = await import("@/lib/firebase/client");
+    const { tryGetFirebaseApp, getFirebaseClientError } = await import("@/lib/firebase/client");
 
-    expect(getFirebaseApp()).toBeNull();
+    expect(tryGetFirebaseApp()).toBeNull();
     expect(getFirebaseClientError()?.message).toBe("Firebase設定が不足しています。");
     expect(initializeAppMock).not.toHaveBeenCalled();
   });
@@ -64,9 +64,9 @@ describe("getFirebaseApp", () => {
     process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID = "sender";
     process.env.NEXT_PUBLIC_FIREBASE_APP_ID = "app-id";
 
-    const { getFirebaseApp, getFirebaseClientError } = await import("@/lib/firebase/client");
+    const { tryGetFirebaseApp, getFirebaseClientError } = await import("@/lib/firebase/client");
 
-    expect(getFirebaseApp()).toEqual({ name: "test-app" });
+    expect(tryGetFirebaseApp()).toEqual({ name: "test-app" });
     expect(getFirebaseClientError()).toBeNull();
     expect(initializeAppMock).toHaveBeenCalledTimes(1);
   });
