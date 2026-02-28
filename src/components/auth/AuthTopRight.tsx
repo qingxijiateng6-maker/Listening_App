@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { signInAnonymouslyIfNeeded, signInWithGoogle, subscribeAuthState } from "@/lib/firebase/auth";
+import {
+  getFirebaseAuthErrorMessage,
+  signInAnonymouslyIfNeeded,
+  signInWithGoogle,
+  subscribeAuthState,
+} from "@/lib/firebase/auth";
 
 export function AuthTopRight() {
   const [uid, setUid] = useState<string>("");
@@ -11,13 +16,25 @@ export function AuthTopRight() {
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
+    setError(getFirebaseAuthErrorMessage());
+
     const unsubscribe = subscribeAuthState((user) => {
       setUid(user?.uid ?? "");
       setIsAnonymous(user?.isAnonymous ?? true);
       setEmail(user?.email ?? "");
+      setError((currentError) => (currentError || !user ? getFirebaseAuthErrorMessage() : ""));
     });
-    void signInAnonymouslyIfNeeded();
-    return unsubscribe;
+
+    void signInAnonymouslyIfNeeded().then(() => {
+      setError((currentError) => {
+        const nextError = getFirebaseAuthErrorMessage();
+        return nextError || currentError;
+      });
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   async function handleGoogleSignIn(): Promise<void> {

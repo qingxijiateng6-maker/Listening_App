@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
+import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 
 type FirebaseClientConfig = {
   apiKey: string;
@@ -51,19 +51,55 @@ function getFirebaseClientConfig(): FirebaseClientConfig {
     .map(({ env }) => env);
 
   if (missingEnvVars.length > 0) {
-    throw new Error(
-      `Missing Firebase env vars: ${missingEnvVars.join(
-        ", ",
-      )}. Set them in .env.local, then restart "npm run dev" (or rebuild before "npm start").`,
-    );
+    console.error("Missing Firebase env vars.", { missingEnvVars });
+    throw new Error("Firebase設定が不足しています。");
   }
 
   return config;
 }
 
-export function getFirebaseApp(): FirebaseApp {
-  if (getApps().length > 0) {
-    return getApp();
+type FirebaseAppState = {
+  app: FirebaseApp | null;
+  error: Error | null;
+  initialized: boolean;
+};
+
+const firebaseAppState: FirebaseAppState = {
+  app: null,
+  error: null,
+  initialized: false,
+};
+
+function initializeFirebaseApp(): FirebaseApp | null {
+  try {
+    if (getApps().length > 0) {
+      return getApp();
+    }
+
+    return initializeApp(getFirebaseClientConfig());
+  } catch (error) {
+    const firebaseError =
+      error instanceof Error ? error : new Error("Firebase初期化に失敗しました。");
+
+    firebaseAppState.error = firebaseError;
+    console.error("Failed to initialize Firebase client.", error);
+    return null;
   }
-  return initializeApp(getFirebaseClientConfig());
+}
+
+export function getFirebaseApp(): FirebaseApp | null {
+  if (!firebaseAppState.initialized) {
+    firebaseAppState.app = initializeFirebaseApp();
+    firebaseAppState.initialized = true;
+  }
+
+  return firebaseAppState.app;
+}
+
+export function getFirebaseClientError(): Error | null {
+  if (!firebaseAppState.initialized) {
+    getFirebaseApp();
+  }
+
+  return firebaseAppState.error;
 }

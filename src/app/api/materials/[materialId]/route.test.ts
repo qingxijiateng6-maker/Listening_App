@@ -1,0 +1,62 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { GET } from "@/app/api/materials/[materialId]/route";
+
+const getMaterialMock = vi.fn();
+
+vi.mock("@/lib/server/materials", () => ({
+  getMaterial: (...args: unknown[]) => getMaterialMock(...args),
+}));
+
+describe("GET /api/materials/[materialId]", () => {
+  beforeEach(() => {
+    getMaterialMock.mockReset();
+  });
+
+  it("returns 404 when the material does not exist", async () => {
+    getMaterialMock.mockResolvedValueOnce(null);
+
+    const response = await GET(new Request("http://localhost/api/materials/mat-1"), {
+      params: Promise.resolve({ materialId: "mat-1" }),
+    });
+
+    expect(getMaterialMock).toHaveBeenCalledWith("mat-1");
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "Material not found" });
+  });
+
+  it("returns the material and status", async () => {
+    getMaterialMock.mockResolvedValueOnce({
+      materialId: "mat-1",
+      youtubeUrl: "https://www.youtube.com/watch?v=abc123",
+      youtubeId: "abc123",
+      title: "Sample",
+      channel: "Channel",
+      durationSec: 120,
+      status: "ready",
+      pipelineVersion: "v1",
+      createdAt: { seconds: 10, nanoseconds: 0, toMillis: () => 10000 },
+      updatedAt: { seconds: 20, nanoseconds: 0, toMillis: () => 20000 },
+    });
+
+    const response = await GET(new Request("http://localhost/api/materials/mat-1"), {
+      params: Promise.resolve({ materialId: "mat-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      material: {
+        materialId: "mat-1",
+        youtubeUrl: "https://www.youtube.com/watch?v=abc123",
+        youtubeId: "abc123",
+        title: "Sample",
+        channel: "Channel",
+        durationSec: 120,
+        status: "ready",
+        pipelineVersion: "v1",
+        createdAt: { seconds: 10, nanoseconds: 0 },
+        updatedAt: { seconds: 20, nanoseconds: 0 },
+      },
+      status: "ready",
+    });
+  });
+});

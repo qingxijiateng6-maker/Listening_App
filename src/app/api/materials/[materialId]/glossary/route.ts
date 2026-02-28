@@ -17,44 +17,44 @@ export async function POST(
   const startedAt = Date.now();
   const body = (await request.json()) as GlossaryRequestBody;
   const rawSurfaceText = body.surfaceText ?? "";
-  const surfaceText = normalizeSurfaceText(rawSurfaceText);
+  const normalizedSurfaceText = normalizeSurfaceText(rawSurfaceText);
   const { materialId } = await params;
 
-  if (!surfaceText) {
+  if (!normalizedSurfaceText) {
     return NextResponse.json({ error: "surfaceText is required" }, { status: 400 });
   }
 
   const db = getAdminDb();
-  const hash = glossaryHash(surfaceText);
+  const hash = glossaryHash(normalizedSurfaceText);
   const glossaryRef = db.collection("materials").doc(materialId).collection("glossary").doc(hash);
 
   const cached = await glossaryRef.get();
   if (cached.exists) {
     const data = cached.data() as { meaningJa: string } | undefined;
     return NextResponse.json({
-      surfaceText,
-      meaningJa: data?.meaningJa ?? buildFallbackMeaningJa(surfaceText),
+      surfaceText: normalizedSurfaceText,
+      meaningJa: data?.meaningJa ?? buildFallbackMeaningJa(normalizedSurfaceText),
       cacheHit: true,
       latencyMs: Date.now() - startedAt,
     });
   }
 
-  let generatedMeaningJa = buildFallbackMeaningJa(surfaceText);
+  let generatedMeaningJa = buildFallbackMeaningJa(normalizedSurfaceText);
   if (isOpenAIEnabled()) {
     try {
-      generatedMeaningJa = await generateGlossaryMeaningJaWithOpenAI(surfaceText);
+      generatedMeaningJa = await generateGlossaryMeaningJaWithOpenAI(normalizedSurfaceText);
     } catch {
-      generatedMeaningJa = buildFallbackMeaningJa(surfaceText);
+      generatedMeaningJa = buildFallbackMeaningJa(normalizedSurfaceText);
     }
   }
   await glossaryRef.set({
-    surfaceText,
+    surfaceText: normalizedSurfaceText,
     meaningJa: generatedMeaningJa,
     createdAt: Timestamp.now(),
   });
 
   return NextResponse.json({
-    surfaceText,
+    surfaceText: normalizedSurfaceText,
     meaningJa: generatedMeaningJa,
     cacheHit: false,
     latencyMs: Date.now() - startedAt,

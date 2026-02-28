@@ -2,9 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Timestamp, doc, getDoc, getDocs, query, setDoc } from "firebase/firestore";
 import { signInAnonymouslyIfNeeded, subscribeAuthState } from "@/lib/firebase/auth";
-import { getDb, expressionsCollection, materialDoc, segmentsCollection, userExpressionsCollection } from "@/lib/firebase/firestore";
 import type { Expression, Material, Segment, UserExpressionStatus } from "@/types/domain";
 import { YouTubeIFramePlayer } from "@/components/materials/YouTubeIFramePlayer";
 
@@ -31,9 +29,45 @@ type GlossaryApiResponse = {
   latencyMs: number;
 };
 
+type MaterialApiResponse = {
+  material: Material & { materialId: string };
+  status: Material["status"];
+};
+
+type SegmentsApiResponse = {
+  segments: Array<Segment & { segmentId: string }>;
+};
+
+type ExpressionsApiResponse = {
+  expressions: Array<Expression & { expressionId: string }>;
+};
+
+type UserExpressionRecord = {
+  expressionId: string;
+  status: UserExpressionStatus;
+  updatedAt: string;
+};
+
+type UserExpressionsApiResponse = {
+  expressions: UserExpressionRecord[];
+};
+
 function tokenizeSurfaceText(text: string): string[] {
   const matches = text.match(/[A-Za-z][A-Za-z'-]*/g) ?? [];
   return Array.from(new Set(matches.map((word) => word.toLowerCase())));
+}
+
+function normalizeGlossaryCacheKey(surfaceText: string): string {
+  return surfaceText
+    .normalize("NFKC")
+    .replace(/[’‘]/g, "'")
+    .replace(/[‐‑‒–—―]/g, "-")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/^[\s"'`“”‘’「」『』（）()［］\[\]{}<>.,!?;:]+|[\s"'`“”‘’「」『』（）()［］\[\]{}<>.,!?;:]+$/g, "")
+    .replace(/\s*([/-])\s*/g, "$1")
+    .replace(/\s*'\s*/g, "'")
+    .toLowerCase();
 }
 
 function findActiveSegmentId(segments: SegmentWithId[], currentMs: number): string | null {
@@ -69,45 +103,75 @@ export function MaterialLearningScreen({ materialId }: Props) {
   const [glossaryStatus, setGlossaryStatus] = useState<GlossaryUiStatus>("idle");
   const [glossaryMeta, setGlossaryMeta] = useState<string>("");
   const [userExpressionStatuses, setUserExpressionStatuses] = useState<UserExpressionStatusMap>({});
+  const [expressionStatusLoadingId, setExpressionStatusLoadingId] = useState<string>("");
+  const [expressionStatusErrorById, setExpressionStatusErrorById] = useState<Record<string, string>>({});
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingLabel, setLoadingLabel] = useState<string>("教材データを読み込んでいます...");
   const [sessionGlossaryCache, setSessionGlossaryCache] = useState<Record<string, string>>({});
   const segmentButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
     let mounted = true;
+    const controller = new AbortController();
+
+    async function fetchJson<T>(url: string): Promise<T> {
+      const response = await fetch(url, {
+        method: "GET",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const fallbackMessage = url.endsWith(`/materials/${materialId}`)
+          ? "教材が見つかりませんでした。"
+          : "教材データの取得に失敗しました。";
+
+        try {
+          const payload = (await response.json()) as { error?: string };
+          throw new Error(payload.error || fallbackMessage);
+        } catch (parseError) {
+          if (parseError instanceof Error) {
+            throw parseError;
+          }
+          throw new Error(fallbackMessage);
+        }
+      }
+
+      return (await response.json()) as T;
+    }
 
     async function loadLearningData() {
+      setLoading(true);
+      setError("");
+      setLoadingLabel("教材データを読み込んでいます...");
       try {
         await signInAnonymouslyIfNeeded();
 
-        const [materialSnapshot, segmentsSnapshot, expressionsSnapshot] = await Promise.all([
-          getDoc(materialDoc(materialId)),
-          getDocs(query(segmentsCollection(materialId))),
-          getDocs(query(expressionsCollection(materialId))),
+        setLoadingLabel("教材・字幕・重要表現を取得しています...");
+        const [materialPayload, segmentsPayload, expressionsPayload] = await Promise.all([
+          fetchJson<MaterialApiResponse>(`/api/materials/${materialId}`),
+          fetchJson<SegmentsApiResponse>(`/api/materials/${materialId}/segments`),
+          fetchJson<ExpressionsApiResponse>(`/api/materials/${materialId}/expressions`),
         ]);
 
         if (!mounted) {
           return;
         }
 
-        if (!materialSnapshot.exists()) {
-          setError("教材が見つかりませんでした。");
-          return;
-        }
+        const nextSegments = segmentsPayload.segments.map(({ segmentId, ...segment }) => ({
+          id: segmentId,
+          ...segment,
+        }));
+        const nextExpressions = expressionsPayload.expressions.map(({ expressionId, ...expression }) => ({
+          id: expressionId,
+          ...expression,
+        }));
 
-        const nextSegments = segmentsSnapshot.docs
-          .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
-          .sort((a, b) => a.startMs - b.startMs);
-        const nextExpressions = expressionsSnapshot.docs
-          .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
-          .sort((a, b) => b.scoreFinal - a.scoreFinal);
-
-        setMaterial(materialSnapshot.data());
+        setMaterial(materialPayload.material);
         setSegments(nextSegments);
         setExpressions(nextExpressions);
       } catch (loadError) {
-        if (mounted) {
+        if (mounted && !(loadError instanceof DOMException && loadError.name === "AbortError")) {
           setError(loadError instanceof Error ? loadError.message : "教材取得に失敗しました。");
         }
       } finally {
@@ -127,32 +191,69 @@ export function MaterialLearningScreen({ materialId }: Props) {
     void loadLearningData();
     return () => {
       mounted = false;
+      controller.abort();
       unsubscribe();
     };
   }, [materialId]);
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     if (!uid) {
       setUserExpressionStatuses({});
+      setExpressionStatusErrorById({});
       return;
     }
 
     async function loadUserStatuses() {
-      const snapshot = await getDocs(userExpressionsCollection(uid));
-      if (!active) {
-        return;
+      try {
+        const response = await fetch("/api/users/me/expressions", {
+          method: "GET",
+          headers: {
+            "x-user-id": uid,
+          },
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          let message = "学習状態の取得に失敗しました。";
+          try {
+            const payload = (await response.json()) as { error?: string };
+            message = payload.error || message;
+          } catch {
+            // Fall back to the default message when the error body is not JSON.
+          }
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as UserExpressionsApiResponse;
+        if (!active) {
+          return;
+        }
+
+        const map: UserExpressionStatusMap = {};
+        payload.expressions.forEach((expression) => {
+          map[expression.expressionId] = expression.status;
+        });
+        setUserExpressionStatuses(map);
+        setExpressionStatusErrorById({});
+      } catch (loadError) {
+        if (!active || (loadError instanceof DOMException && loadError.name === "AbortError")) {
+          return;
+        }
+
+        setUserExpressionStatuses({});
+        setExpressionStatusErrorById((prev) => ({
+          ...prev,
+          __load__: loadError instanceof Error ? loadError.message : "学習状態の取得に失敗しました。",
+        }));
       }
-      const map: UserExpressionStatusMap = {};
-      snapshot.docs.forEach((entry) => {
-        map[entry.id] = entry.data().status;
-      });
-      setUserExpressionStatuses(map);
     }
 
     void loadUserStatuses();
     return () => {
       active = false;
+      controller.abort();
     };
   }, [uid]);
 
@@ -195,15 +296,44 @@ export function MaterialLearningScreen({ materialId }: Props) {
     if (!uid) {
       return;
     }
-    await setDoc(
-      doc(getDb(), "users", uid, "expressions", expressionId),
-      {
-        status,
-        updatedAt: Timestamp.now(),
-      },
-      { merge: true },
-    );
-    setUserExpressionStatuses((prev) => ({ ...prev, [expressionId]: status }));
+
+    setExpressionStatusLoadingId(expressionId);
+    setExpressionStatusErrorById((prev) => ({ ...prev, [expressionId]: "" }));
+
+    try {
+      const response = await fetch(`/api/users/me/expressions/${expressionId}`, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          "x-user-id": uid,
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        let message = "学習状態の更新に失敗しました。再試行してください。";
+        try {
+          const payload = (await response.json()) as { error?: string };
+          message = payload.error || message;
+        } catch {
+          // Fall back to the default message when the error body is not JSON.
+        }
+        throw new Error(message);
+      }
+
+      const payload = (await response.json()) as UserExpressionRecord;
+      setUserExpressionStatuses((prev) => ({ ...prev, [expressionId]: payload.status }));
+    } catch (updateError) {
+      setExpressionStatusErrorById((prev) => ({
+        ...prev,
+        [expressionId]:
+          updateError instanceof Error
+            ? updateError.message
+            : "学習状態の更新に失敗しました。再試行してください。",
+      }));
+    } finally {
+      setExpressionStatusLoadingId((current) => (current === expressionId ? "" : current));
+    }
   }
 
   function seekToSegment(startMs: number): void {
@@ -215,7 +345,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
   }
 
   async function fetchGlossary(surfaceText: string): Promise<void> {
-    const normalizedWord = surfaceText.toLowerCase();
+    const normalizedWord = normalizeGlossaryCacheKey(surfaceText);
     setSelectedWord(normalizedWord);
 
     const inMemoryMeaning = sessionGlossaryCache[normalizedWord];
@@ -254,13 +384,15 @@ export function MaterialLearningScreen({ materialId }: Props) {
 
       const payload = (await response.json()) as GlossaryApiResponse;
       const totalMs = Math.round(performance.now() - startedAt);
+      const cacheKey = normalizeGlossaryCacheKey(payload.surfaceText);
 
       setGlossaryStatus("ready");
+      setSelectedWord(payload.surfaceText);
       setGlossaryMeaning(payload.meaningJa);
       setGlossaryMeta(
         `source: ${payload.cacheHit ? "firestore-cache" : "generated"} / api: ${payload.latencyMs}ms / total: ${totalMs}ms`,
       );
-      setSessionGlossaryCache((prev) => ({ ...prev, [normalizedWord]: payload.meaningJa }));
+      setSessionGlossaryCache((prev) => ({ ...prev, [cacheKey]: payload.meaningJa }));
     } catch (glossaryError) {
       setGlossaryStatus("error");
       if (glossaryError instanceof DOMException && glossaryError.name === "AbortError") {
@@ -279,8 +411,8 @@ export function MaterialLearningScreen({ materialId }: Props) {
   return (
     <main>
       <h1>学習画面</h1>
-      {loading ? <p>読み込み中...</p> : null}
-      {error ? <p>{error}</p> : null}
+      {loading ? <p>{loadingLabel}</p> : null}
+      {error ? <p>表示に必要なデータを読み込めませんでした。 {error}</p> : null}
       {material ? (
         <>
           <section>
@@ -347,8 +479,11 @@ export function MaterialLearningScreen({ materialId }: Props) {
 
           <section>
             <h2>重要表現</h2>
+            {expressionStatusErrorById.__load__ ? <p>{expressionStatusErrorById.__load__}</p> : null}
             {expressions.map((expression) => {
               const status = userExpressionStatuses[expression.id] ?? "";
+              const isUpdating = expressionStatusLoadingId === expression.id;
+              const updateError = expressionStatusErrorById[expression.id] ?? "";
               const firstOccurrence = expression.occurrences[0];
               return (
                 <article key={expression.id} className="expressionCard">
@@ -356,6 +491,8 @@ export function MaterialLearningScreen({ materialId }: Props) {
                   <p>意味: {expression.meaningJa}</p>
                   <p>例文: {expression.scenarioExample}</p>
                   <p>status: {status || "unset"}</p>
+                  {isUpdating ? <p>更新中...</p> : null}
+                  {updateError ? <p role="alert">{updateError}</p> : null}
                   <p>
                     <button
                       type="button"
@@ -370,13 +507,25 @@ export function MaterialLearningScreen({ materialId }: Props) {
                     </button>
                   </p>
                   <p className="statusActions">
-                    <button type="button" onClick={() => void updateExpressionStatus(expression.id, "saved")}>
+                    <button
+                      type="button"
+                      disabled={isUpdating}
+                      onClick={() => void updateExpressionStatus(expression.id, "saved")}
+                    >
                       保存
                     </button>
-                    <button type="button" onClick={() => void updateExpressionStatus(expression.id, "ignored")}>
+                    <button
+                      type="button"
+                      disabled={isUpdating}
+                      onClick={() => void updateExpressionStatus(expression.id, "ignored")}
+                    >
                       除外
                     </button>
-                    <button type="button" onClick={() => void updateExpressionStatus(expression.id, "mastered")}>
+                    <button
+                      type="button"
+                      disabled={isUpdating}
+                      onClick={() => void updateExpressionStatus(expression.id, "mastered")}
+                    >
                       習得
                     </button>
                   </p>

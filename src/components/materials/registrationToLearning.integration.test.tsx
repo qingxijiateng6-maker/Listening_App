@@ -40,17 +40,11 @@ vi.mock("@/components/materials/YouTubeIFramePlayer", () => ({
 
 vi.mock("@/lib/firebase/firestore", () => ({
   getDb: vi.fn(() => ({})),
-  materialDoc: vi.fn((materialId: string) => ({ path: `materials/${materialId}` })),
-  segmentsCollection: vi.fn((materialId: string) => ({ path: `materials/${materialId}/segments` })),
-  expressionsCollection: vi.fn((materialId: string) => ({ path: `materials/${materialId}/expressions` })),
   userExpressionsCollection: vi.fn((uid: string) => ({ path: `users/${uid}/expressions` })),
 }));
 
 vi.mock("firebase/firestore", () => ({
   Timestamp: { now: () => ({ toMillis: () => Date.now() }) },
-  where: (...args: unknown[]) => args,
-  limit: (value: number) => value,
-  query: (head: unknown) => head,
   doc: (...args: unknown[]) => {
     const [head, tail] = args;
     if (head && typeof head === "object" && "path" in (head as Record<string, unknown>)) {
@@ -58,30 +52,8 @@ vi.mock("firebase/firestore", () => ({
     }
     return { path: args.map(String).join("/") };
   },
-  getDoc: async (ref: { path: string }) => {
-    if (ref.path.startsWith("materials/")) {
-      const id = ref.path.replace("materials/", "");
-      const data = materials.get(id);
-      return { exists: () => Boolean(data), data: () => data };
-    }
-    return { exists: () => false, data: () => undefined };
-  },
   getDocs: async (queryHead: { path?: string }) => {
     const path = queryHead?.path ?? "";
-    if (path === "materials") {
-      const docs = [...materials.entries()].map(([id, data]) => ({ id, data: () => data }));
-      return { empty: docs.length === 0, docs };
-    }
-    if (path.endsWith("/segments")) {
-      const materialId = path.split("/")[1] ?? "";
-      const docs = segments.get(materialId) ?? [];
-      return { docs: docs.map((row) => ({ id: row.id, data: () => row.data })) };
-    }
-    if (path.endsWith("/expressions")) {
-      const materialId = path.split("/")[1] ?? "";
-      const docs = expressions.get(materialId) ?? [];
-      return { docs: docs.map((row) => ({ id: row.id, data: () => row.data })) };
-    }
     if (path.startsWith("users/")) {
       return { docs: [] };
     }
@@ -100,13 +72,58 @@ describe("registration -> queued job -> learning integration", () => {
   });
 
   it("registers video through API, then renders learning screen after completion", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        materialId: "mat1",
-        status: "ready",
-        reused: false,
-      }),
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.endsWith("/api/materials")) {
+        return {
+          ok: true,
+          json: async () => ({
+            materialId: "mat1",
+            status: "ready",
+            reused: false,
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/materials/mat1")) {
+        return {
+          ok: true,
+          json: async () => ({
+            material: {
+              materialId: "mat1",
+              ...(materials.get("mat1") ?? {}),
+            },
+            status: materials.get("mat1")?.status ?? "queued",
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/materials/mat1/segments")) {
+        return {
+          ok: true,
+          json: async () => ({
+            segments: (segments.get("mat1") ?? []).map((row) => ({
+              segmentId: row.id,
+              ...row.data,
+            })),
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/materials/mat1/expressions")) {
+        return {
+          ok: true,
+          json: async () => ({
+            expressions: (expressions.get("mat1") ?? []).map((row) => ({
+              expressionId: row.id,
+              ...row.data,
+            })),
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
     });
 
     render(<VideoRegistrationForm />);
