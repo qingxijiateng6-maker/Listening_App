@@ -1,9 +1,11 @@
 import { MaterialLearningScreen } from "@/components/materials/MaterialLearningScreen";
 
 type Props = {
-  params: { materialId: string };
+  params: Promise<{ materialId: string }>;
 };
 
-export default function MaterialPage({ params }: Props) {
-  return <MaterialLearningScreen materialId={params.materialId} />;
+export default async function MaterialPage({ params }: Props) {
+  const { materialId } = await params;
+
+  return <MaterialLearningScreen materialId={materialId} />;
 }
