@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { getAdminAuth } from "@/lib/firebase/admin";
 
 export type RequestUser = {
   uid: string;
@@ -19,8 +20,15 @@ async function resolveFirebaseIdTokenUser(request: NextRequest): Promise<Request
     return null;
   }
 
-  // Placeholder for Firebase Admin ID token verification.
-  return null;
+  try {
+    const decodedToken = await getAdminAuth().verifyIdToken(idToken);
+    return {
+      uid: decodedToken.uid,
+      source: "firebase-id-token",
+    };
+  } catch {
+    return null;
+  }
 }
 
 function resolveAnonymousHeaderUser(request: NextRequest): RequestUser | null {

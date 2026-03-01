@@ -89,6 +89,28 @@ export function getFirebaseAuthErrorMessage(): string {
   return getFirebaseAuthError()?.message ?? "";
 }
 
+export async function buildAuthenticatedRequestHeaders(): Promise<Record<string, string>> {
+  const user = await signInAnonymouslyIfNeeded();
+  if (!user) {
+    return {};
+  }
+
+  const headers: Record<string, string> = {
+    "x-user-id": user.uid,
+  };
+
+  try {
+    const idToken = await user.getIdToken();
+    if (idToken) {
+      headers.authorization = `Bearer ${idToken}`;
+    }
+  } catch {
+    // The server still accepts x-user-id as a temporary fallback.
+  }
+
+  return headers;
+}
+
 export async function signInAnonymouslyIfNeeded(): Promise<User | null> {
   const auth = getFirebaseAuth();
   if (!auth) {

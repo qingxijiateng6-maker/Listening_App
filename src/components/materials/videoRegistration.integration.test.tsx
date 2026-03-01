@@ -13,7 +13,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/firebase/auth", () => ({
-  signInAnonymouslyIfNeeded: vi.fn().mockResolvedValue({ uid: "u1" }),
+  buildAuthenticatedRequestHeaders: vi.fn().mockResolvedValue({
+    "x-user-id": "u1",
+    authorization: "Bearer token-1",
+  }),
 }));
 
 vi.mock("@/lib/youtube", () => ({
@@ -74,6 +77,11 @@ describe("Video registration integration", () => {
         "/api/materials",
         expect.objectContaining({
           method: "POST",
+          headers: expect.objectContaining({
+            "content-type": "application/json",
+            "x-user-id": "u1",
+            authorization: "Bearer token-1",
+          }),
         }),
       );
       expect(pushMock).toHaveBeenCalledWith("/materials/mat1");

@@ -1,0 +1,10 @@
+
+> listening-app@0.1.0 start
+> next start --port 3012
+
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3012
+   - Network:      http://192.168.40.198:3012
+
+ ✓ Starting...
+ ✓ Ready in 1677ms

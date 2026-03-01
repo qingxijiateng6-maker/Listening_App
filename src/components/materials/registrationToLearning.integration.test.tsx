@@ -20,6 +20,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/firebase/auth", () => ({
+  buildAuthenticatedRequestHeaders: vi.fn().mockResolvedValue({
+    "x-user-id": "u1",
+    authorization: "Bearer token-1",
+  }),
   signInAnonymouslyIfNeeded: vi.fn().mockResolvedValue({ uid: "u1" }),
   subscribeAuthState: (callback: (user: { uid: string }) => void) => {
     callback({ uid: "u1" });

@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { signInAnonymouslyIfNeeded } from "@/lib/firebase/auth";
+import { buildAuthenticatedRequestHeaders } from "@/lib/firebase/auth";
 import { parseYouTubeUrl } from "@/lib/youtube";
 
 type SubmitState = "idle" | "submitting";
@@ -26,11 +26,12 @@ export function VideoRegistrationForm() {
 
     setSubmitState("submitting");
     try {
-      await signInAnonymouslyIfNeeded();
+      const authHeaders = await buildAuthenticatedRequestHeaders();
       const response = await fetch("/api/materials", {
         method: "POST",
         headers: {
           "content-type": "application/json",
+          ...authHeaders,
         },
         body: JSON.stringify({ youtubeUrl: parsed.normalizedUrl }),
       });

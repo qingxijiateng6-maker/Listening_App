@@ -28,6 +28,7 @@ vi.mock("@/lib/firebase/client", () => ({
 }));
 
 import {
+  buildAuthenticatedRequestHeaders,
   getFirebaseAuthErrorMessage,
   signInAnonymouslyIfNeeded,
   signInWithGoogle,
@@ -59,6 +60,20 @@ describe("firebase auth helpers", () => {
 
     await expect(signInAnonymouslyIfNeeded()).resolves.toBe(currentUser);
     expect(signInAnonymouslyMock).not.toHaveBeenCalled();
+  });
+
+  it("builds request headers from the current firebase user", async () => {
+    const currentUser = {
+      uid: "anon-uid",
+      isAnonymous: true,
+      getIdToken: vi.fn().mockResolvedValue("token-123"),
+    };
+    getAuthMock.mockReturnValue({ currentUser });
+
+    await expect(buildAuthenticatedRequestHeaders()).resolves.toEqual({
+      "x-user-id": "anon-uid",
+      authorization: "Bearer token-123",
+    });
   });
 
   it("links anonymous users with google first", async () => {

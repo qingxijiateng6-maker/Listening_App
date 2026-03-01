@@ -1,4 +1,4 @@
-export const MATERIAL_PIPELINE_VERSION = "v1";
+export const MATERIAL_PIPELINE_VERSION = "v2";
 
 export const JOB_DISPATCH_BATCH_SIZE = 5;
 export const JOB_LOCK_TIMEOUT_MS = 10 * 60 * 1000;

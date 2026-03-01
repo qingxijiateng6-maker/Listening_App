@@ -542,6 +542,8 @@ export async function enqueueMaterialPipelineJob(materialId: string): Promise<st
     if (existing.exists) {
       return;
     }
+    const materialSnap = await tx.get(materialRef);
+
     tx.create(jobRef, {
       type: "material_pipeline",
       materialId,
@@ -557,8 +559,6 @@ export async function enqueueMaterialPipelineJob(materialId: string): Promise<st
       createdAt: now,
       updatedAt: now,
     });
-
-    const materialSnap = await tx.get(materialRef);
     if (!materialSnap.exists) {
       return;
     }

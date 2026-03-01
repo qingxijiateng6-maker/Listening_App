@@ -1,0 +1,6 @@
+Error: Firestore transactions require all reads to be executed before all writes.
+    at <unknown> (C:\Users\qingx\OneDrive\デスクトップ\新しいフォルダー\Listening_App\.next\server\chunks\510.js:1:15148)
+    at async y (C:\Users\qingx\OneDrive\デスクトップ\新しいフォルダー\Listening_App\.next\server\chunks\510.js:1:14868)
+    at async n (C:\Users\qingx\OneDrive\デスクトップ\新しいフォルダー\Listening_App\.next\server\app\api\materials\route.js:1:9039)
+    at async k (C:\Users\qingx\OneDrive\デスクトップ\新しいフォルダー\Listening_App\.next\server\app\api\materials\route.js:1:3675)
+^C^C

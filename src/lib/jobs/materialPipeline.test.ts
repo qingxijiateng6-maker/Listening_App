@@ -221,7 +221,7 @@ describe("pipeline failure scenarios", () => {
     expect(pipelineState.persistedCount).toBe(1);
   });
 
-  it("stores material meta, records missing captions explicitly, and clears segments during format", async () => {
+  it("stores material meta and fails fast when captions are unavailable", async () => {
     const pipelineState: {
       meta?: {
         youtubeId: string;
@@ -255,6 +255,7 @@ describe("pipeline failure scenarios", () => {
           durationSec: 321,
         }),
       })),
+      set: vi.fn(async () => undefined),
       collection: (childName: string) => {
         if (childName === "_pipeline") {
           return {
@@ -328,16 +329,13 @@ describe("pipeline failure scenarios", () => {
       pipelineVersion: "v1",
       step: "meta",
     });
-    await runMaterialPipelineStep({
-      materialId: "mat-1",
-      pipelineVersion: "v1",
-      step: "captions",
-    });
-    await runMaterialPipelineStep({
-      materialId: "mat-1",
-      pipelineVersion: "v1",
-      step: "format",
-    });
+    await expect(
+      runMaterialPipelineStep({
+        materialId: "mat-1",
+        pipelineVersion: "v1",
+        step: "captions",
+      }),
+    ).rejects.toThrow("No published captions were found for this video.");
 
     expect(pipelineState.meta).toEqual({
       youtubeId: "dQw4w9WgXcQ",
@@ -351,14 +349,9 @@ describe("pipeline failure scenarios", () => {
       youtubeId: "dQw4w9WgXcQ",
       youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     });
-    expect(pipelineState.captions).toEqual({
-      status: "unavailable",
-      source: "youtube_captions",
-      reason: "captions_not_found",
-      message: "No published captions were found for this video.",
-    });
-    expect(pipelineState.formattedSegmentCount).toBe(0);
-    expect(segments.size).toBe(0);
+    expect(pipelineState.captions).toBeUndefined();
+    expect(pipelineState.formattedSegmentCount).toBeUndefined();
+    expect(segments.size).toBe(1);
   });
 
   it("formats fetched captions into deterministic segments before extract reads them", async () => {
@@ -431,6 +424,7 @@ describe("pipeline failure scenarios", () => {
                 youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
               }),
             })),
+            set: vi.fn(async () => undefined),
             collection: (childName: string) => {
               if (childName === "_pipeline") {
                 return { doc: () => stateDocRef };
@@ -458,6 +452,11 @@ describe("pipeline failure scenarios", () => {
         { startMs: 2000, endMs: 3200, text: "  Take   ownership " },
         { startMs: 0, endMs: 1500, text: "Move forward" },
       ],
+      metadata: {
+        title: "Video title",
+        channel: "Channel name",
+        durationSec: 321,
+      },
     });
 
     await runMaterialPipelineStep({

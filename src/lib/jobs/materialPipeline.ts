@@ -18,6 +18,8 @@ import type { JobStep } from "@/types/domain";
 const THRESHOLD = 75;
 const MAX_NGRAM = 4;
 const MIN_WORD_LEN = 2;
+const MAX_PIPELINE_CANDIDATES = 250;
+const MAX_STORED_OCCURRENCES = 8;
 const STOP_WORDS = new Set([
   "the",
   "a",
@@ -128,6 +130,24 @@ function expressionId(expressionText: string): string {
 
 function nowTs(): Timestamp {
   return Timestamp.now();
+}
+
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as T;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).flatMap(([key, entryValue]) => {
+      if (entryValue === undefined) {
+        return [];
+      }
+      return [[key, stripUndefined(entryValue)]];
+    });
+    return Object.fromEntries(entries) as T;
+  }
+
+  return value;
 }
 
 function clamp(score: number): number {
@@ -369,6 +389,13 @@ function buildInitialCandidate(expressionText: string, occurrence: Occurrence): 
   };
 }
 
+function compactCandidate(candidate: Candidate): Candidate {
+  return {
+    ...candidate,
+    occurrences: candidate.occurrences.slice(0, MAX_STORED_OCCURRENCES),
+  };
+}
+
 function stateRef(materialId: string, pipelineVersion: string) {
   return getAdminDb()
     .collection("materials")
@@ -395,7 +422,9 @@ async function readState(materialId: string, pipelineVersion: string): Promise<P
 }
 
 async function writeState(materialId: string, pipelineVersion: string, state: PipelineState): Promise<void> {
-  await stateRef(materialId, pipelineVersion).set({ ...state, updatedAt: nowTs() }, { merge: true });
+  await stateRef(materialId, pipelineVersion).set(stripUndefined({ ...state, updatedAt: nowTs() }), {
+    merge: true,
+  });
 }
 
 async function readMaterial(materialId: string): Promise<MaterialRecord> {
@@ -464,6 +493,20 @@ async function runCaptions(materialId: string, pipelineVersion: string): Promise
     youtubeUrl: materialMeta.youtubeUrl,
   });
 
+  if (captions.status !== "fetched") {
+    throw new Error(captions.message);
+  }
+
+  await getAdminDb().collection("materials").doc(materialId).set(
+    {
+      title: captions.metadata?.title ?? materialMeta.title,
+      channel: captions.metadata?.channel ?? materialMeta.channel,
+      durationSec: captions.metadata?.durationSec ?? materialMeta.durationSec,
+      updatedAt: nowTs(),
+    },
+    { merge: true },
+  );
+
   await writeState(materialId, pipelineVersion, {
     ...state,
     captions,
@@ -491,32 +534,33 @@ async function runFormat(materialId: string, pipelineVersion: string): Promise<v
 async function runExtract(materialId: string, pipelineVersion: string): Promise<void> {
   const db = getAdminDb();
   const segmentsSnapshot = await db.collection("materials").doc(materialId).collection("segments").get();
-  const candidateMap = new Map<string, Candidate>();
-
-  segmentsSnapshot.docs.forEach((segmentDoc) => {
+  const segments: InMemorySegment[] = segmentsSnapshot.docs.map((segmentDoc) => {
     const segment = segmentDoc.data() as SegmentRecord;
-    const tokens = tokenize(segment.text);
-    for (let n = 1; n <= MAX_NGRAM; n += 1) {
-      for (let i = 0; i <= tokens.length - n; i += 1) {
-        const phrase = tokens.slice(i, i + n).join(" ");
-        const occurrence: Occurrence = {
-          startMs: segment.startMs,
-          endMs: segment.endMs,
-          segmentId: segmentDoc.id,
-        };
-        const existing = candidateMap.get(phrase);
-        if (!existing) {
-          candidateMap.set(phrase, buildInitialCandidate(phrase, occurrence));
-        } else {
-          existing.occurrences.push(occurrence);
-        }
-      }
-    }
+    return {
+      id: segmentDoc.id,
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      text: segment.text,
+    };
   });
 
+  const { accepted, rejected } = runExpressionPipelineInMemory(segments, {
+    generateScenarioExample: () => "",
+  });
+  const compactedCandidates = [...accepted, ...rejected]
+    .sort(
+      (left, right) =>
+        right.scoreFinal - left.scoreFinal ||
+        right.occurrences.length - left.occurrences.length ||
+        left.expressionText.localeCompare(right.expressionText),
+    )
+    .slice(0, MAX_PIPELINE_CANDIDATES)
+    .map((candidate) => compactCandidate(candidate));
+  const compactedAccepted = compactedCandidates.filter((candidate) => candidate.decision === "accept");
+
   await writeState(materialId, pipelineVersion, {
-    candidates: Array.from(candidateMap.values()),
-    accepted: [],
+    candidates: compactedCandidates,
+    accepted: compactedAccepted,
     updatedAt: nowTs(),
   });
 }
@@ -662,10 +706,10 @@ async function runPersist(materialId: string, pipelineVersion: string): Promise<
   await batch.commit();
 
   await stateRef(materialId, pipelineVersion).set(
-    {
+    stripUndefined({
       persistedCount: acceptedById.length,
       updatedAt: nowTs(),
-    },
+    }),
     { merge: true },
   );
 }
