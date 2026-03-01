@@ -47,16 +47,16 @@ describe("material pipeline progress state", () => {
     });
   });
 
-  it("marks persist as the ready terminal state", () => {
+  it("marks format as the ready terminal state", () => {
     const now = Timestamp.fromMillis(3_000_000);
-    const progress = buildPipelineProgressState("persist", now);
+    const progress = buildPipelineProgressState("format", now);
 
     expect(progress.materialStatus).toBe("ready");
     expect(progress.jobStatus).toBe("done");
-    expect(progress.jobStep).toBe("persist");
+    expect(progress.jobStep).toBe("format");
     expect(progress.pipelineState).toMatchObject({
-      currentStep: "persist",
-      lastCompletedStep: "persist",
+      currentStep: "format",
+      lastCompletedStep: "format",
       status: "ready",
       updatedAt: now,
       errorCode: "",
@@ -67,20 +67,20 @@ describe("material pipeline progress state", () => {
 
 describe("material pipeline failure details", () => {
   it("uses a step-specific retry error for transient failures", () => {
-    const details = buildJobFailureDetails("score", 0, new Error("scoring exploded"));
+    const details = buildJobFailureDetails("captions", 0, new Error("caption fetch exploded"));
 
     expect(details.isPermanentFailure).toBe(false);
     expect(details.nextAttempt).toBe(1);
-    expect(details.errorCode).toBe("material_pipeline_score_retrying");
-    expect(details.errorMessage).toContain('step "score" retrying on attempt 1/6: scoring exploded');
+    expect(details.errorCode).toBe("material_pipeline_captions_retrying");
+    expect(details.errorMessage).toContain('step "captions" retrying on attempt 1/6: caption fetch exploded');
   });
 
   it("marks the final attempt as a permanent step failure", () => {
-    const details = buildJobFailureDetails("persist", 5, new Error("write denied"));
+    const details = buildJobFailureDetails("format", 5, new Error("segment write denied"));
 
     expect(details.isPermanentFailure).toBe(true);
     expect(details.nextAttempt).toBe(6);
-    expect(details.errorCode).toBe("material_pipeline_persist_failed");
-    expect(details.errorMessage).toContain('step "persist" failed on attempt 6/6: write denied');
+    expect(details.errorCode).toBe("material_pipeline_format_failed");
+    expect(details.errorMessage).toContain('step "format" failed on attempt 6/6: segment write denied');
   });
 });

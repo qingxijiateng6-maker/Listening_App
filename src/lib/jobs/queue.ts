@@ -11,21 +11,10 @@ import { buildMaterialPipelineJobId } from "@/lib/jobs/idempotency";
 import { runMaterialPipelineStep } from "@/lib/jobs/materialPipeline";
 import type { JobStep } from "@/types/domain";
 
-const MATERIAL_PIPELINE_STEPS: JobStep[] = [
-  "meta",
-  "captions",
-  "asr",
-  "format",
-  "extract",
-  "filter",
-  "score",
-  "reeval",
-  "examples",
-  "persist",
-];
+const MATERIAL_PIPELINE_STEPS: JobStep[] = ["meta", "captions", "format"];
 
 type JobStatus = "queued" | "processing" | "done" | "failed";
-type JobType = "material_pipeline" | "glossary_generate";
+type JobType = "material_pipeline";
 
 type JobRecord = {
   type: JobType;
@@ -94,7 +83,7 @@ function firstStep(): JobStep {
 }
 
 function lastStep(): JobStep {
-  return MATERIAL_PIPELINE_STEPS[MATERIAL_PIPELINE_STEPS.length - 1] ?? "persist";
+  return MATERIAL_PIPELINE_STEPS[MATERIAL_PIPELINE_STEPS.length - 1] ?? "format";
 }
 
 export function computeBackoffSeconds(attempt: number): number {
@@ -404,7 +393,6 @@ async function progressMaterialPipeline(jobId: string, job: JobRecord): Promise<
       throw new Error("Unsupported job type for this worker.");
     }
 
-    // idempotency: already completed with the same pipeline version
     if (
       material.status === "ready" &&
       material.pipelineVersion === latestJob.pipelineVersion &&

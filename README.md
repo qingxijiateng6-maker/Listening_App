@@ -1,14 +1,13 @@
 # Listening App
 
-YouTube の公開動画 URL を入力すると、字幕・重要表現・タップ辞書を備えたリスニング教材を生成する Next.js アプリです。
+YouTube の公開動画 URL を入力すると、動画と字幕で学習できるリスニング教材を生成する Next.js アプリです。
 
 ## 概要
 
 - フロント/サーバー: Next.js on Vercel
-- 認証: Firebase Authentication (Anonymous)
+- 認証: Firebase Authentication
 - DB: Firestore
 - 非同期処理: Firestore `jobs` + 即時実行 + Worker API
-- 生成 AI: OpenAI API
 
 ## 現状の実装範囲
 
@@ -18,9 +17,6 @@ YouTube の公開動画 URL を入力すると、字幕・重要表現・タッ�
 - 同一 `youtubeId + pipelineVersion` の教材再利用
 - 教材メタ情報取得
 - 字幕セグメント取得
-- 重要表現一覧取得
-- 字幕タップ時の glossary 生成/キャッシュ
-- 匿名ユーザーの表現状態取得/更新
 - Firestore `jobs` を使ったジョブ投入、ロック、再試行、stale lock 回収
 - Worker API によるパイプライン実行
 - Firestore Security Rules の雛形管理
@@ -28,7 +24,6 @@ YouTube の公開動画 URL を入力すると、字幕・重要表現・タッ�
 ### MVP として未対応
 
 - Firebase Admin による ID token 検証
-- glossary API のレート制御
 - 公開教材 / 非公開教材の可視性切り替え
 - 復習機能、SRS、クイズ、進捗ダッシュボード
 - YouTube 以外の動画ソース
@@ -42,12 +37,7 @@ YouTube の公開動画 URL を入力すると、字幕・重要表現・タッ�
 | --- | --- | --- | --- |
 | `materials/{materialId}` | 教材メタ情報 | 可 | 不可 |
 | `materials/{materialId}/segments/{segmentId}` | 字幕 | 可 | 不可 |
-| `materials/{materialId}/expressions/{expressionId}` | 重要表現 | 可 | 不可 |
-| `materials/{materialId}/glossary/{glossaryId}` | タップ辞書キャッシュ | 可 | 不可 |
 | `jobs/{jobId}` | 非同期ジョブ | 不可 | 不可 |
-| `users/{uid}/expressions/{expressionId}` | 学習状態 | 本人のみ | 本人のみ |
-
-`users/{uid}/expressions` は本人のみ更新可能です。更新可能フィールドは `status` と `updatedAt` のみで、`status` は `saved | ignored | mastered` に限定します。
 
 ### ジョブ実行の流れ
 
@@ -64,10 +54,6 @@ YouTube の公開動画 URL を入力すると、字幕・重要表現・タッ�
 | `POST /api/materials` | 教材登録、重複判定、ジョブ投入 | 認証必須。現実装は `resolveRequestUser()` により `x-user-id` フォールバックあり |
 | `GET /api/materials/:materialId` | 教材メタ情報取得 | 匿名可 |
 | `GET /api/materials/:materialId/segments` | 字幕取得 | 匿名可 |
-| `GET /api/materials/:materialId/expressions` | 重要表現取得 | 匿名可 |
-| `POST /api/materials/:materialId/glossary` | glossary 生成/取得 | 匿名可 |
-| `GET /api/users/me/expressions` | 自分の表現状態取得 | 本人のみ |
-| `PUT /api/users/me/expressions/:expressionId` | 自分の表現状態更新 | 本人のみ |
 | `POST /api/jobs/dispatch` | ジョブをロックする補助 API | `CRON_SECRET` または `WORKER_SECRET` |
 | `POST /api/worker/jobs/dispatch` | due job をロックして処理 | `CRON_SECRET` または `WORKER_SECRET` |
 | `POST /api/worker/jobs/recover-stale` | stale lock 回収 | `CRON_SECRET` または `WORKER_SECRET` |
@@ -89,7 +75,6 @@ YouTube の公開動画 URL を入力すると、字幕・重要表現・タッ�
 - Node.js 20 以上
 - Firebase プロジェクト
 - Vercel プロジェクト
-- OpenAI API Key
 
 ### 環境変数
 
@@ -127,13 +112,6 @@ cp .env.example .env.local
   - `POST /api/worker/jobs/recover-stale`
   - `POST /api/worker/material-pipeline`
   - `GET /api/cron/jobs` が内部で worker を呼ぶときにも使用
-
-#### OpenAI
-
-- `OPENAI_API_KEY`: 必須
-- `OPENAI_MODEL`: 任意。既定値は `gpt-4o-mini`
-- `OPENAI_BASE_URL`: 任意。既定値は `https://api.openai.com/v1`
-- `OPENAI_TIMEOUT_MS`: 任意。既定値は `8000`
 
 ## ローカル起動
 
