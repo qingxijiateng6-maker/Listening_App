@@ -6,6 +6,7 @@ type ReevalDecision = "accept" | "reject";
 
 export type OpenAIExpressionReevalInput = {
   expressionText: string;
+  contextText?: string;
   scoreFinal: number;
   flagsFinal: string[];
   axisScores: {
@@ -87,10 +88,15 @@ export async function reevaluateExpressionWithOpenAI(
   const content = await getDefaultServerLlmClient().generateText({
     systemPrompt: [
       "You review candidate English expressions for a Japanese listening-learning app.",
+      "Strongly prefer idioms, phrasal verbs, and CEFR C1+ vocabulary.",
+      "Reject generic fragments, pronoun+be chunks, plain prepositional phrases, and low-value collocations.",
+      'Examples to reject: "more than", "it was", "in the skiing industry".',
+      'Examples to accept when natural: "face the music", "freak out", "mitigate", "humdrum".',
       "Return exactly one JSON object with keys decision, reasonShort, meaningJa.",
       'decision must be either "accept" or "reject".',
       "reasonShort must be concise Japanese.",
-      "meaningJa must be concise Japanese explaining the expression's meaning in context.",
+      "meaningJa must be a short, natural Japanese gloss that works as a translation in the given context.",
+      "Do not just restate the English expression or say that the meaning depends on context.",
     ].join(" "),
     userPrompt: JSON.stringify(input),
     temperature: 0,

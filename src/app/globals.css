@@ -64,6 +64,26 @@ main {
   gap: 1rem;
 }
 
+.playerTranscriptSection {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.playerTranscriptGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.playerColumn,
+.transcriptColumn {
+  height: 100%;
+}
+
 .learningSection,
 .learningHeroSection,
 .learningStateCard,
@@ -154,6 +174,10 @@ main {
 .segmentList {
   display: grid;
   gap: 0.5rem;
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  scroll-behavior: smooth;
 }
 
 section {
@@ -257,7 +281,6 @@ input[disabled] {
 }
 
 .subtitleTapPanel {
-  margin-top: 0.75rem;
   padding: 0.95rem;
   border-radius: 12px;
   background: #f7f9fd;
@@ -576,6 +599,14 @@ input[disabled] {
   .learningEmptyCard,
   .subtitleTapPanel {
     padding: 0.85rem;
+  }
+
+  .playerTranscriptGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .segmentList {
+    max-height: 50vh;
   }
 
   .segmentButton {

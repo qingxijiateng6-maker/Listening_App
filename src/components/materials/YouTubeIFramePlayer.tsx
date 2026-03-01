@@ -100,7 +100,10 @@ export function YouTubeIFramePlayer({ youtubeId, onTimeChange, onApiReady }: Pro
         if (!player) {
           return;
         }
-        onTimeChange(player.getCurrentTime() * 1000);
+          if (typeof player.getCurrentTime !== "function") {
+            return;
+          }
+          onTimeChange(player.getCurrentTime() * 1000);
       }, 250);
     }
 

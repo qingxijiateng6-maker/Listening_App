@@ -21,6 +21,7 @@ type PlayerApi = {
 type UserExpressionStatusMap = Record<string, UserExpressionStatus>;
 type GlossaryUiStatus = "idle" | "loading" | "ready" | "error";
 const GLOSSARY_REQUEST_TIMEOUT_MS = 900;
+const STATUS_DOUBLE_CLICK_WINDOW_MS = 400;
 
 type GlossaryApiResponse = {
   surfaceText: string;
@@ -116,6 +117,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
   const [loadingLabel, setLoadingLabel] = useState<string>("教材データを読み込んでいます...");
   const [sessionGlossaryCache, setSessionGlossaryCache] = useState<Record<string, string>>({});
   const segmentButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const expressionActionClickRef = useRef<Record<string, { status: UserExpressionStatus; at: number }>>({});
 
   useEffect(() => {
     let mounted = true;
@@ -346,6 +348,51 @@ export function MaterialLearningScreen({ materialId }: Props) {
     }
   }
 
+  async function clearExpressionStatus(expressionId: string): Promise<void> {
+    if (!uid) {
+      return;
+    }
+
+    setExpressionStatusLoadingId(expressionId);
+    setExpressionStatusErrorById((prev) => ({ ...prev, [expressionId]: "" }));
+
+    try {
+      const response = await fetch(`/api/users/me/expressions/${expressionId}`, {
+        method: "DELETE",
+        headers: {
+          "x-user-id": uid,
+        },
+      });
+
+      if (!response.ok) {
+        let message = "学習状態の解除に失敗しました。再試行してください。";
+        try {
+          const payload = (await response.json()) as { error?: string };
+          message = payload.error || message;
+        } catch {
+          // Fall back to the default message when the error body is not JSON.
+        }
+        throw new Error(message);
+      }
+
+      setUserExpressionStatuses((prev) => {
+        const next = { ...prev };
+        delete next[expressionId];
+        return next;
+      });
+    } catch (updateError) {
+      setExpressionStatusErrorById((prev) => ({
+        ...prev,
+        [expressionId]:
+          updateError instanceof Error
+            ? updateError.message
+            : "学習状態の解除に失敗しました。再試行してください。",
+      }));
+    } finally {
+      setExpressionStatusLoadingId((current) => (current === expressionId ? "" : current));
+    }
+  }
+
   function seekToSegment(startMs: number): void {
     if (!playerApi) {
       return;
@@ -433,6 +480,30 @@ export function MaterialLearningScreen({ materialId }: Props) {
     return EXPRESSION_STATUS_LABELS[status] ?? status;
   }
 
+  function handleExpressionStatusAction(expressionId: string, nextStatus: UserExpressionStatus, currentStatus: string): void {
+    const now = Date.now();
+    const lastClick = expressionActionClickRef.current[expressionId];
+
+    if (
+      currentStatus === nextStatus &&
+      lastClick?.status === nextStatus &&
+      now - lastClick.at <= STATUS_DOUBLE_CLICK_WINDOW_MS
+    ) {
+      delete expressionActionClickRef.current[expressionId];
+      void clearExpressionStatus(expressionId);
+      return;
+    }
+
+    expressionActionClickRef.current[expressionId] = {
+      status: nextStatus,
+      at: now,
+    };
+
+    if (currentStatus !== nextStatus) {
+      void updateExpressionStatus(expressionId, nextStatus);
+    }
+  }
+
   return (
     <main className="learningScreen">
       <header className="learningScreenHeader">
@@ -463,72 +534,76 @@ export function MaterialLearningScreen({ materialId }: Props) {
       ) : null}
       {material ? (
         <div className="learningLayout">
-          <section className="learningHeroSection">
-            <div className="learningSectionHeader">
-              <div>
-                <h2>教材</h2>
-                <p>再生と字幕を行き来しながら学習できます。</p>
+          <section className="playerTranscriptSection">
+            <div className="playerTranscriptGrid">
+              <div className="learningHeroSection playerColumn">
+                <div className="learningSectionHeader">
+                  <div>
+                    <h2>教材</h2>
+                    <p>再生と字幕を行き来しながら学習できます。</p>
+                  </div>
+                </div>
+                <YouTubeIFramePlayer
+                  youtubeId={material.youtubeId}
+                  onApiReady={handlePlayerReady}
+                  onTimeChange={handleTimeChange}
+                />
               </div>
-            </div>
-            <YouTubeIFramePlayer
-              youtubeId={material.youtubeId}
-              onApiReady={handlePlayerReady}
-              onTimeChange={handleTimeChange}
-            />
-          </section>
 
-          <section className="learningSection">
-            <div className="learningSectionHeader">
-              <div>
-                <h2>字幕</h2>
-                <p>再生位置: {(currentMs / 1000).toFixed(1)}s</p>
+              <div className="learningSection transcriptColumn">
+                <div className="learningSectionHeader">
+                  <div>
+                    <h2>字幕</h2>
+                    <p>再生位置: {(currentMs / 1000).toFixed(1)}s</p>
+                  </div>
+                  {activeSegment ? (
+                    <div className="activeSubtitleSummary">
+                      <span className="activeSubtitleLabel">再生中</span>
+                      <p>{activeSegment.text}</p>
+                    </div>
+                  ) : (
+                    <div className="activeSubtitleSummary idle">
+                      <span className="activeSubtitleLabel">再生中</span>
+                      <p>再生位置に対応する字幕がまだありません。</p>
+                    </div>
+                  )}
+                </div>
+                {segments.length === 0 ? (
+                  <div className="learningEmptyCard">
+                    <h3>字幕がまだありません</h3>
+                    <p>字幕データの生成後にここへ表示されます。</p>
+                  </div>
+                ) : (
+                  <div className="segmentList" aria-label="字幕一覧">
+                    {segments.map((segment) => {
+                      const isActive = segment.id === activeSegmentId;
+                      const isSelected = segment.id === selectedSegmentId;
+                      return (
+                        <button
+                          key={segment.id}
+                          type="button"
+                          className={`segmentButton${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
+                          ref={(node) => {
+                            segmentButtonRefs.current[segment.id] = node;
+                          }}
+                          onClick={() => {
+                            setSelectedSegmentId(segment.id);
+                            resetGlossaryState();
+                            seekToSegment(segment.startMs);
+                          }}
+                        >
+                          <span className="segmentTime">[{(segment.startMs / 1000).toFixed(1)}s]</span>
+                          <span className="segmentText">{segment.text}</span>
+                          <span className="segmentStateText">
+                            {isActive ? "再生中" : isSelected ? "選択中" : "ジャンプ"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              {activeSegment ? (
-                <div className="activeSubtitleSummary">
-                  <span className="activeSubtitleLabel">再生中</span>
-                  <p>{activeSegment.text}</p>
-                </div>
-              ) : (
-                <div className="activeSubtitleSummary idle">
-                  <span className="activeSubtitleLabel">再生中</span>
-                  <p>再生位置に対応する字幕がまだありません。</p>
-                </div>
-              )}
             </div>
-            {segments.length === 0 ? (
-              <div className="learningEmptyCard">
-                <h3>字幕がまだありません</h3>
-                <p>字幕データの生成後にここへ表示されます。</p>
-              </div>
-            ) : (
-              <div className="segmentList" aria-label="字幕一覧">
-                {segments.map((segment) => {
-                  const isActive = segment.id === activeSegmentId;
-                  const isSelected = segment.id === selectedSegmentId;
-                  return (
-                    <button
-                      key={segment.id}
-                      type="button"
-                      className={`segmentButton${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
-                      ref={(node) => {
-                        segmentButtonRefs.current[segment.id] = node;
-                      }}
-                      onClick={() => {
-                        setSelectedSegmentId(segment.id);
-                        resetGlossaryState();
-                        seekToSegment(segment.startMs);
-                      }}
-                    >
-                      <span className="segmentTime">[{(segment.startMs / 1000).toFixed(1)}s]</span>
-                      <span className="segmentText">{segment.text}</span>
-                      <span className="segmentStateText">
-                        {isActive ? "再生中" : isSelected ? "選択中" : "ジャンプ"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
             {selectedSegment ? (
               <div className="subtitleTapPanel">
                 <div className="learningSectionHeader compact">
@@ -620,7 +695,6 @@ export function MaterialLearningScreen({ materialId }: Props) {
                       <div className="expressionCardHeader">
                         <div>
                           <h3>{expression.expressionText}</h3>
-                          <p className="expressionReason">{expression.reasonShort}</p>
                         </div>
                         <span className={`expressionStatusBadge ${status || "unset"}`}>
                           {getExpressionStatusLabel(status)}
@@ -658,7 +732,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
                           className={status === "saved" ? "active" : ""}
                           aria-pressed={status === "saved"}
                           disabled={isUpdating}
-                          onClick={() => void updateExpressionStatus(expression.id, "saved")}
+                          onClick={() => handleExpressionStatusAction(expression.id, "saved", status)}
                         >
                           保存
                         </button>
@@ -667,7 +741,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
                           className={status === "ignored" ? "active" : ""}
                           aria-pressed={status === "ignored"}
                           disabled={isUpdating}
-                          onClick={() => void updateExpressionStatus(expression.id, "ignored")}
+                          onClick={() => handleExpressionStatusAction(expression.id, "ignored", status)}
                         >
                           除外
                         </button>
@@ -676,7 +750,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
                           className={status === "mastered" ? "active" : ""}
                           aria-pressed={status === "mastered"}
                           disabled={isUpdating}
-                          onClick={() => void updateExpressionStatus(expression.id, "mastered")}
+                          onClick={() => handleExpressionStatusAction(expression.id, "mastered", status)}
                         >
                           習得
                         </button>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveRequestUser } from "@/lib/server/requestUser";
-import { isUserExpressionStatus, upsertUserExpression } from "@/lib/server/userExpressions";
+import { deleteUserExpression, isUserExpressionStatus, upsertUserExpression } from "@/lib/server/userExpressions";
 
 export const runtime = "nodejs";
 
@@ -29,4 +29,22 @@ export async function PUT(
 
   const expression = await upsertUserExpression(user.uid, expressionId, body.status);
   return NextResponse.json(expression);
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ expressionId: string }> },
+) {
+  const user = await resolveRequestUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { expressionId } = await params;
+  if (!expressionId) {
+    return NextResponse.json({ error: "expressionId is required" }, { status: 400 });
+  }
+
+  await deleteUserExpression(user.uid, expressionId);
+  return NextResponse.json({ expressionId, cleared: true });
 }

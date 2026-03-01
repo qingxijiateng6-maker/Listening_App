@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { PUT } from "@/app/api/users/me/expressions/[expressionId]/route";
+import { DELETE, PUT } from "@/app/api/users/me/expressions/[expressionId]/route";
 
 const upsertUserExpressionMock = vi.fn();
+const deleteUserExpressionMock = vi.fn();
 
 vi.mock("@/lib/server/userExpressions", async () => {
   const actual = await vi.importActual<typeof import("@/lib/server/userExpressions")>(
@@ -12,12 +13,14 @@ vi.mock("@/lib/server/userExpressions", async () => {
   return {
     ...actual,
     upsertUserExpression: (...args: unknown[]) => upsertUserExpressionMock(...args),
+    deleteUserExpression: (...args: unknown[]) => deleteUserExpressionMock(...args),
   };
 });
 
 describe("PUT /api/users/me/expressions/[expressionId]", () => {
   beforeEach(() => {
     upsertUserExpressionMock.mockReset();
+    deleteUserExpressionMock.mockReset();
   });
 
   it("returns unauthorized when user identity is missing", async () => {
@@ -76,6 +79,26 @@ describe("PUT /api/users/me/expressions/[expressionId]", () => {
       expressionId: "exp-1",
       status: "mastered",
       updatedAt: "2026-02-28T00:00:00.000Z",
+    });
+  });
+
+  it("clears the current user's learning status", async () => {
+    deleteUserExpressionMock.mockResolvedValueOnce(undefined);
+
+    const request = new NextRequest("http://localhost/api/users/me/expressions/exp-1", {
+      method: "DELETE",
+      headers: {
+        "x-user-id": "anon-user-1",
+      },
+    });
+
+    const response = await DELETE(request, { params: Promise.resolve({ expressionId: "exp-1" }) });
+
+    expect(deleteUserExpressionMock).toHaveBeenCalledWith("anon-user-1", "exp-1");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      expressionId: "exp-1",
+      cleared: true,
     });
   });
 });

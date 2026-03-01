@@ -1,6 +1,9 @@
 import { getAdminDb } from "@/lib/firebase/admin";
 import type { Expression, Material, Segment } from "@/types/domain";
 
+const MAX_EXPRESSION_RESULTS = 20;
+const GENERIC_SCENARIO_EXAMPLE_PATTERN = /^In a meeting, I used "(.+)" to explain my point clearly\.$/;
+
 export type MaterialRecord = Material & {
   materialId: string;
 };
@@ -12,6 +15,26 @@ export type SegmentRecord = Segment & {
 export type ExpressionRecord = Expression & {
   expressionId: string;
 };
+
+function normalizeExpressionExample(
+  expression: ExpressionRecord,
+  segmentTextById: Map<string, string>,
+): ExpressionRecord {
+  if (!GENERIC_SCENARIO_EXAMPLE_PATTERN.test(expression.scenarioExample)) {
+    return expression;
+  }
+
+  const firstOccurrence = expression.occurrences[0];
+  const segmentText = firstOccurrence ? segmentTextById.get(firstOccurrence.segmentId) : "";
+  if (!segmentText) {
+    return expression;
+  }
+
+  return {
+    ...expression,
+    scenarioExample: segmentText,
+  };
+}
 
 async function getMaterialSnapshot(materialId: string) {
   return getAdminDb().collection("materials").doc(materialId).get();
@@ -55,8 +78,18 @@ export async function listMaterialExpressions(
     return null;
   }
 
-  const snapshot = await materialSnapshot.ref.collection("expressions").get();
-  return snapshot.docs
+  const [expressionSnapshot, segmentSnapshot] = await Promise.all([
+    materialSnapshot.ref.collection("expressions").get(),
+    materialSnapshot.ref.collection("segments").get(),
+  ]);
+  const segmentTextById = new Map(
+    segmentSnapshot.docs.map((docSnapshot) => {
+      const segment = docSnapshot.data() as Segment;
+      return [docSnapshot.id, segment.text] as const;
+    }),
+  );
+
+  return expressionSnapshot.docs
     .map((docSnapshot) => ({
       expressionId: docSnapshot.id,
       ...(docSnapshot.data() as Expression),
@@ -66,5 +99,7 @@ export async function listMaterialExpressions(
         right.scoreFinal - left.scoreFinal ||
         right.createdAt.toMillis() - left.createdAt.toMillis() ||
         left.expressionId.localeCompare(right.expressionId),
-    );
+    )
+    .slice(0, MAX_EXPRESSION_RESULTS)
+    .map((expression) => normalizeExpressionExample(expression, segmentTextById));
 }

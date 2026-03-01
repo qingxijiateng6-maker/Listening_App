@@ -7,6 +7,7 @@ const fetchCaptionsMock = vi.fn();
 const generateScenarioExampleWithOpenAIMock = vi.fn();
 const reevaluateExpressionWithOpenAIMock = vi.fn();
 const isOpenAIEnabledMock = vi.fn(() => false);
+const fetchMock = vi.fn();
 
 let timestampCounter = 0;
 
@@ -69,12 +70,97 @@ describe("pipeline failure scenarios", () => {
     reevaluateExpressionWithOpenAIMock.mockReset();
     isOpenAIEnabledMock.mockReset();
     isOpenAIEnabledMock.mockReturnValue(false);
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
   });
 
   it("handles no subtitles (empty segments) without crash", () => {
     const result = runExpressionPipelineInMemory([]);
     expect(result.accepted).toHaveLength(0);
     expect(result.rejected).toHaveLength(0);
+  });
+
+  it("prioritizes idioms and advanced words over generic fragments", () => {
+    const result = runExpressionPipelineInMemory([
+      {
+        id: "s1",
+        startMs: 0,
+        endMs: 2000,
+        text: "When you face the music, do not freak out.",
+      },
+      {
+        id: "s2",
+        startMs: 2100,
+        endMs: 4200,
+        text: "We should mitigate the risk instead of accepting a humdrum plan.",
+      },
+      {
+        id: "s3",
+        startMs: 4300,
+        endMs: 6500,
+        text: "It was more than enough in the skiing industry.",
+      },
+    ]);
+
+    const acceptedTexts = result.accepted.map((candidate) => candidate.expressionText);
+    const rejectedTexts = result.rejected.map((candidate) => candidate.expressionText);
+
+    expect(acceptedTexts).toContain("face the music");
+    expect(acceptedTexts).toContain("freak out");
+    expect(acceptedTexts).toContain("mitigate");
+    expect(acceptedTexts).toContain("humdrum");
+    expect(acceptedTexts).not.toContain("more than");
+    expect(acceptedTexts).not.toContain("it was");
+    expect(acceptedTexts).not.toContain("in the skiing industry");
+    expect(rejectedTexts).not.toContain("more than");
+    expect(rejectedTexts).not.toContain("it was");
+    expect(rejectedTexts).not.toContain("in the skiing industry");
+    expect(result.accepted.find((candidate) => candidate.expressionText === "face the music")?.meaningJa).toBe(
+      "厳しい現実を受け入れる",
+    );
+    expect(result.accepted.find((candidate) => candidate.expressionText === "mitigate")?.meaningJa).toBe(
+      "和らげる",
+    );
+  });
+
+  it("keeps only the top 20 accepted expressions", () => {
+    const advancedWords = [
+      "mitigate",
+      "allocate",
+      "articulate",
+      "cultivate",
+      "differentiate",
+      "facilitate",
+      "formulate",
+      "integrate",
+      "negotiate",
+      "regulate",
+      "correlation",
+      "implication",
+      "coordination",
+      "justification",
+      "optimization",
+      "transformation",
+      "sustainability",
+      "productivity",
+      "credibility",
+      "flexibility",
+      "resilience",
+      "leadership",
+      "awareness",
+      "ownership",
+    ];
+    const segments = advancedWords.map((word, index) => ({
+      id: `s${index + 1}`,
+      startMs: index * 1000,
+      endMs: index * 1000 + 900,
+      text: `We should ${word} the plan immediately.`,
+    }));
+
+    const result = runExpressionPipelineInMemory(segments);
+
+    expect(result.accepted).toHaveLength(20);
+    expect(result.accepted[0]?.scoreFinal).toBeGreaterThanOrEqual(result.accepted[19]?.scoreFinal ?? 0);
   });
 
   it("propagates scenario example generation failure", () => {
@@ -126,7 +212,7 @@ describe("pipeline failure scenarios", () => {
           },
           scoreFinal: EXPRESSION_THRESHOLD + 5,
           decision: "accept" as const,
-          meaningJa: "take ownership の意味（文脈依存）",
+          meaningJa: "主体的に責任を持つ",
           reasonShort: "5軸評価=80, 出現=1",
           scenarioExample: "In a meeting, I used \"take ownership\" to explain my point clearly.",
         },
@@ -165,8 +251,15 @@ describe("pipeline failure scenarios", () => {
           set: (ref: { id: string }, value: Record<string, unknown>, options?: { merge?: boolean }) => {
             writes.push({ ref, value, options });
           },
+          delete: (ref: { id: string }) => {
+            writes.push({ ref, value: {}, options: { merge: false, delete: true } as { merge?: boolean } });
+          },
           commit: async () => {
             writes.forEach(({ ref, value, options }) => {
+              if ((options as { delete?: boolean } | undefined)?.delete) {
+                expressionDocs.delete(ref.id);
+                return;
+              }
               const current = expressionDocs.get(ref.id) ?? {};
               expressionDocs.set(ref.id, options?.merge ? { ...current, ...value } : value);
             });
@@ -191,6 +284,13 @@ describe("pipeline failure scenarios", () => {
               expect(childName).toBe("expressions");
               return {
                 doc: (docId: string) => buildExpressionDocRef(docId),
+                get: vi.fn(async () => ({
+                  docs: Array.from(expressionDocs.entries()).map(([id, value]) => ({
+                    id,
+                    ref: { id },
+                    data: () => value,
+                  })),
+                })),
               };
             },
           }),
@@ -541,6 +641,7 @@ describe("pipeline failure scenarios", () => {
 
     expect(reevaluateExpressionWithOpenAIMock).toHaveBeenCalledWith({
       expressionText: "take ownership",
+      contextText: undefined,
       scoreFinal: 68,
       flagsFinal: [],
       axisScores: {
@@ -639,6 +740,15 @@ describe("pipeline failure scenarios", () => {
     generateScenarioExampleWithOpenAIMock.mockResolvedValue(
       "We need to take ownership before the launch.",
     );
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        responseData: {
+          translatedText: "責任を持つ",
+        },
+        matches: [],
+      }),
+    });
 
     const pipelineState: {
       candidates: Array<Record<string, unknown>>;
@@ -724,7 +834,7 @@ describe("pipeline failure scenarios", () => {
     expect(generateScenarioExampleWithOpenAIMock).toHaveBeenCalledTimes(1);
     expect(generateScenarioExampleWithOpenAIMock).toHaveBeenCalledWith("take ownership");
     expect(pipelineState.candidates[0]).toMatchObject({
-      meaningJa: "主体的に責任を持つこと",
+      meaningJa: "「take ownership」は「責任を持つ」という意味。",
       reasonShort: "会議でも汎用的で自然",
       scenarioExample: "We need to take ownership before the launch.",
     });

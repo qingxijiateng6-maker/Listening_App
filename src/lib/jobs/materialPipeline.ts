@@ -20,6 +20,10 @@ const MAX_NGRAM = 4;
 const MIN_WORD_LEN = 2;
 const MAX_PIPELINE_CANDIDATES = 250;
 const MAX_STORED_OCCURRENCES = 8;
+const MAX_WORDS_PER_EXPRESSION = 4;
+const MAX_ACCEPTED_EXPRESSIONS = 20;
+const MEANING_TRANSLATION_TIMEOUT_MS = 3500;
+const MEANING_TRANSLATION_ENDPOINT = "https://api.mymemory.translated.net/get";
 const STOP_WORDS = new Set([
   "the",
   "a",
@@ -57,7 +61,201 @@ const STOP_WORDS = new Set([
   "we",
   "they",
 ]);
+const FUNCTION_WORDS = new Set([
+  ...STOP_WORDS,
+  "me",
+  "him",
+  "her",
+  "them",
+  "my",
+  "your",
+  "his",
+  "their",
+  "our",
+  "its",
+  "do",
+  "does",
+  "did",
+  "have",
+  "has",
+  "had",
+  "not",
+  "no",
+  "than",
+  "then",
+  "there",
+  "here",
+]);
+const PREPOSITIONS = new Set([
+  "in",
+  "on",
+  "at",
+  "by",
+  "for",
+  "from",
+  "with",
+  "about",
+  "against",
+  "between",
+  "into",
+  "through",
+  "during",
+  "before",
+  "after",
+  "above",
+  "below",
+  "under",
+  "over",
+  "within",
+  "without",
+]);
+const PARTICLES = new Set([
+  "up",
+  "out",
+  "off",
+  "on",
+  "down",
+  "away",
+  "back",
+  "around",
+  "through",
+  "over",
+  "into",
+]);
+const COMMON_WORDS = new Set([
+  ...FUNCTION_WORDS,
+  "all",
+  "also",
+  "another",
+  "any",
+  "ask",
+  "because",
+  "become",
+  "best",
+  "better",
+  "big",
+  "call",
+  "change",
+  "come",
+  "day",
+  "even",
+  "every",
+  "feel",
+  "find",
+  "first",
+  "forward",
+  "get",
+  "give",
+  "good",
+  "great",
+  "group",
+  "hand",
+  "help",
+  "high",
+  "home",
+  "important",
+  "industry",
+  "job",
+  "keep",
+  "know",
+  "large",
+  "last",
+  "leave",
+  "life",
+  "little",
+  "look",
+  "lot",
+  "make",
+  "man",
+  "many",
+  "meet",
+  "moment",
+  "money",
+  "month",
+  "more",
+  "most",
+  "move",
+  "music",
+  "need",
+  "new",
+  "next",
+  "old",
+  "other",
+  "part",
+  "people",
+  "place",
+  "point",
+  "put",
+  "right",
+  "run",
+  "same",
+  "say",
+  "see",
+  "show",
+  "small",
+  "start",
+  "state",
+  "still",
+  "take",
+  "team",
+  "tell",
+  "thing",
+  "think",
+  "time",
+  "train",
+  "try",
+  "turn",
+  "use",
+  "want",
+  "way",
+  "week",
+  "well",
+  "work",
+  "world",
+  "year",
+]);
+const ADVANCED_WORD_AFFIXES = [
+  "ate",
+  "ence",
+  "ency",
+  "ent",
+  "hood",
+  "iate",
+  "ify",
+  "ious",
+  "ism",
+  "ist",
+  "ition",
+  "itive",
+  "itude",
+  "ize",
+  "logy",
+  "ment",
+  "ness",
+  "ology",
+  "ship",
+  "sion",
+  "tion",
+  "tive",
+];
 const UNSAFE_TERMS = ["porn", "hate", "kill", "racist", "suicide", "sexual assault"];
+const LOW_VALUE_EXACT_PHRASES = new Set([
+  "it is",
+  "it was",
+  "there is",
+  "there are",
+  "there was",
+  "there were",
+  "this is",
+  "that is",
+  "i was",
+  "we are",
+  "you are",
+  "more than",
+  "less than",
+  "a lot of",
+  "one of the",
+]);
 
 type SegmentRecord = {
   startMs: number;
@@ -124,6 +322,53 @@ type MaterialRecord = {
   durationSec?: number;
 };
 
+const EXACT_MEANINGS_JA: Record<string, string> = {
+  "align on priorities": "優先順位について認識をそろえる",
+  "face the music": "厳しい現実を受け入れる",
+  "freak out": "ひどく動揺する",
+  humdrum: "単調で退屈な",
+  mitigate: "和らげる",
+  "move forward": "前に進む",
+  "take ownership": "主体的に責任を持つ",
+};
+
+const SINGLE_WORD_MEANINGS_JA: Record<string, string> = {
+  abrupt: "突然の",
+  ambiguous: "曖昧な",
+  coherent: "一貫した",
+  compelling: "説得力のある",
+  cumbersome: "扱いにくい",
+  detrimental: "有害な",
+  diligent: "勤勉な",
+  discrepancy: "食い違い",
+  feasible: "実行可能な",
+  fragile: "壊れやすい",
+  humdrum: "単調で退屈な",
+  inevitable: "避けられない",
+  intricate: "複雑な",
+  mitigate: "和らげる",
+  nuanced: "微妙な差異を含む",
+  tedious: "うんざりするほど退屈な",
+  tentative: "暫定的な",
+  viable: "実行可能な",
+};
+
+const PHRASAL_VERB_MEANINGS_JA: Record<string, string> = {
+  "back up": "裏づける",
+  "break down": "故障する",
+  "bring up": "持ち出す",
+  "carry out": "実行する",
+  "figure out": "理解する",
+  "find out": "知る",
+  "freak out": "ひどく動揺する",
+  "point out": "指摘する",
+  "set up": "準備する",
+  "sort out": "整理して解決する",
+  "take on": "引き受ける",
+  "turn out": "結果的にそうなる",
+  "work out": "うまくいく",
+};
+
 function expressionId(expressionText: string): string {
   return createHash("sha1").update(expressionText).digest("hex");
 }
@@ -160,30 +405,196 @@ function tokenize(text: string): string[] {
   );
 }
 
-function buildMeaningJa(expressionText: string): string {
-  return `${expressionText} の意味（文脈依存）`;
+function isCommonWord(word: string): boolean {
+  return COMMON_WORDS.has(word);
+}
+
+function isAdvancedSingleWord(word: string): boolean {
+  if (word.includes("'") || word.includes("-")) {
+    return false;
+  }
+  if (FUNCTION_WORDS.has(word) || isCommonWord(word)) {
+    return false;
+  }
+  if (word.length >= 8) {
+    return true;
+  }
+  if (word.length >= 7 && /[bdgkmpt]{2}|[aeiou]{2}/.test(word)) {
+    return true;
+  }
+  return ADVANCED_WORD_AFFIXES.some((affix) => word.endsWith(affix) && word.length >= affix.length + 3);
+}
+
+function isLikelyPhrasalVerb(words: string[]): boolean {
+  if (words.length < 2 || words.length > MAX_WORDS_PER_EXPRESSION) {
+    return false;
+  }
+  if (FUNCTION_WORDS.has(words[0])) {
+    return false;
+  }
+
+  return words.slice(1).some((word) => PARTICLES.has(word));
+}
+
+function isLikelyIdiomPattern(words: string[]): boolean {
+  if (words.length !== 3) {
+    return false;
+  }
+
+  const [first, second, third] = words;
+  if (FUNCTION_WORDS.has(first) || FUNCTION_WORDS.has(third)) {
+    return false;
+  }
+
+  return ["a", "an", "the", "your", "my", "his", "her", "our", "their"].includes(second);
+}
+
+function buildMeaningJa(expressionText: string, contextText?: string): string {
+  const normalized = expressionText.trim().toLowerCase();
+  const exactMeaning = EXACT_MEANINGS_JA[normalized];
+  if (exactMeaning) {
+    return exactMeaning;
+  }
+
+  const words = normalized.split(" ");
+  if (words.length === 1) {
+    return SINGLE_WORD_MEANINGS_JA[normalized] ?? `「${normalized}」に近い意味のやや難しい語`;
+  }
+
+  const phrasalVerbMeaning = PHRASAL_VERB_MEANINGS_JA[normalized];
+  if (phrasalVerbMeaning) {
+    return phrasalVerbMeaning;
+  }
+
+  if (words.length === 3 && words[1] === "the") {
+    const object = words[2];
+    if (object === "music") {
+      return "厳しい現実を受け入れる";
+    }
+    return `${object}に向き合う`;
+  }
+
+  if (words.length >= 2 && words[0] === "align" && words[1] === "on") {
+    return words.length > 2
+      ? `${words.slice(2).join(" ")}について認識をそろえる`
+      : "認識をそろえる";
+  }
+
+  if (words.length >= 2 && words[0] === "take" && words[1] === "ownership") {
+    return "主体的に責任を持つ";
+  }
+
+  if (words.length >= 2 && words[0] === "move" && words[1] === "forward") {
+    return "前に進む";
+  }
+
+  if (words.length >= 2 && words[0] === "face") {
+    return "直面する";
+  }
+
+  if (contextText) {
+    return `文脈では「${normalized}」は重要な内容を表す表現`;
+  }
+
+  return `「${normalized}」に近い意味の表現`;
 }
 
 function buildReason(candidate: Candidate): string {
   return `5軸評価=${candidate.scoreFinal}, 出現=${candidate.occurrences.length}`;
 }
 
-function buildScenarioExample(expressionText: string): string {
+function buildScenarioExample(expressionText: string, contextText?: string): string {
+  if (contextText && contextText.toLowerCase().includes(expressionText.toLowerCase())) {
+    return contextText;
+  }
   return `In a meeting, I used "${expressionText}" to explain my point clearly.`;
 }
 
-async function buildScenarioExampleAsync(expressionText: string): Promise<string> {
+async function buildScenarioExampleAsync(expressionText: string, contextText?: string): Promise<string> {
   if (!isOpenAIEnabled()) {
-    return buildScenarioExample(expressionText);
+    return buildScenarioExample(expressionText, contextText);
   }
   try {
     return await generateScenarioExampleWithOpenAI(expressionText);
   } catch {
-    return buildScenarioExample(expressionText);
+    return buildScenarioExample(expressionText, contextText);
   }
 }
 
-function buildHeuristicReeval(candidate: Candidate): NonNullable<Candidate["reeval"]> {
+function looksJapanese(text: string): boolean {
+  return /[\u3040-\u30ff\u3400-\u9fff]/.test(text);
+}
+
+function normalizeTranslatedMeaning(translatedText: string): string {
+  return translatedText
+    .replace(/\s+/g, " ")
+    .replace(/^["'`「『（(]+|["'`」』）).。]+$/g, "")
+    .trim();
+}
+
+async function fetchMeaningJaOnline(expressionText: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEANING_TRANSLATION_TIMEOUT_MS);
+
+  try {
+    const query = new URLSearchParams({
+      q: expressionText,
+      langpair: "en|ja",
+    });
+    const response = await fetch(`${MEANING_TRANSLATION_ENDPOINT}?${query.toString()}`, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        accept: "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as {
+      responseData?: { translatedText?: string };
+      matches?: Array<{ translation?: string; match?: number; quality?: number | string }>;
+    };
+
+    const candidates = [
+      payload.responseData?.translatedText,
+      ...(payload.matches ?? [])
+        .sort(
+          (left, right) =>
+            Number(right.match ?? 0) - Number(left.match ?? 0) ||
+            Number(right.quality ?? 0) - Number(left.quality ?? 0),
+        )
+        .map((entry) => entry.translation),
+    ]
+      .map((value) => normalizeTranslatedMeaning(value ?? ""))
+      .filter((value) => value.length > 0);
+
+    return candidates.find((value) => looksJapanese(value) && value.toLowerCase() !== expressionText.toLowerCase()) ?? null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function buildMeaningJaAsync(expressionText: string, contextText?: string): Promise<string> {
+  const translated = await fetchMeaningJaOnline(expressionText);
+  if (translated) {
+    return contextText
+      ? `この文脈では「${expressionText}」は「${translated}」という意味。`
+      : `「${expressionText}」は「${translated}」という意味。`;
+  }
+
+  return buildMeaningJa(expressionText, contextText);
+}
+
+function buildHeuristicReeval(
+  candidate: Candidate,
+  contextText?: string,
+): NonNullable<Candidate["reeval"]> {
   const decision: NonNullable<Candidate["reeval"]>["decision"] = decideAcceptance(
     candidate.scoreFinal,
     candidate.flagsFinal,
@@ -195,15 +606,16 @@ function buildHeuristicReeval(candidate: Candidate): NonNullable<Candidate["reev
     source: "heuristic",
     decision,
     reasonShort: buildReason(candidate),
-    meaningJa: buildMeaningJa(candidate.expressionText),
+    meaningJa: buildMeaningJa(candidate.expressionText, contextText),
   };
 }
 
 function buildFallbackReeval(
   candidate: Candidate,
   error: unknown,
+  contextText?: string,
 ): NonNullable<Candidate["reeval"]> {
-  const heuristic = buildHeuristicReeval(candidate);
+  const heuristic = buildHeuristicReeval(candidate, contextText);
 
   return {
     ...heuristic,
@@ -217,6 +629,18 @@ function hasUnsafeTerm(text: string): boolean {
   return UNSAFE_TERMS.some((term) => lower.includes(term));
 }
 
+function getCandidateContextText(
+  candidate: Candidate,
+  segmentTextById: Map<string, string>,
+): string | undefined {
+  const firstOccurrence = candidate.occurrences[0];
+  if (!firstOccurrence) {
+    return undefined;
+  }
+
+  return segmentTextById.get(firstOccurrence.segmentId);
+}
+
 function addFlag(candidate: Candidate, flag: string): Candidate {
   if (candidate.flagsFinal.includes(flag)) {
     return candidate;
@@ -228,14 +652,30 @@ function computeAxisScores(expressionText: string, occurrences: Occurrence[]): A
   const words = expressionText.split(" ");
   const wordCount = words.length;
   const frequency = occurrences.length;
+  const advancedSingleWord = wordCount === 1 && isAdvancedSingleWord(words[0]);
+  const idiomCandidate = isLikelyPhrasalVerb(words) || isLikelyIdiomPattern(words);
 
-  const utility = clamp(55 + Math.min(35, frequency * 10) + (wordCount >= 2 ? 10 : 0));
-  const portability = clamp(
-    82 - (/\d/.test(expressionText) ? 20 : 0) - (wordCount > 5 ? 10 : 0),
+  const utility = clamp(
+    40 +
+      Math.min(28, frequency * 8) +
+      (idiomCandidate ? 28 : 0) +
+      (advancedSingleWord ? 28 : 0) +
+      (wordCount >= 2 ? 6 : 0),
   );
-  const naturalness = clamp(75 + (/[a-z]/.test(expressionText) ? 8 : -12) - (wordCount > 6 ? 8 : 0));
-  const c1Value = clamp(45 + (wordCount >= 2 ? 22 : -10) + (wordCount >= 3 ? 15 : 0));
-  const contextRobustness = clamp(45 + Math.min(45, frequency * 12));
+  const portability = clamp(
+    70 +
+      (idiomCandidate ? 20 : 0) +
+      (advancedSingleWord ? 18 : 0) -
+      (/\d/.test(expressionText) ? 20 : 0) -
+      (wordCount > MAX_WORDS_PER_EXPRESSION ? 10 : 0),
+  );
+  const naturalness = clamp(
+    62 + (/[a-z]/.test(expressionText) ? 8 : -12) + (idiomCandidate ? 14 : 0) - (wordCount > 4 ? 8 : 0),
+  );
+  const c1Value = clamp(
+    18 + (advancedSingleWord ? 72 : 0) + (idiomCandidate ? 44 : 0) + (wordCount >= 3 ? 8 : 0),
+  );
+  const contextRobustness = clamp(35 + Math.min(40, frequency * 10) + (idiomCandidate ? 10 : 0));
 
   return {
     utility,
@@ -258,7 +698,7 @@ export function decideAcceptance(scoreFinal: number, flagsFinal: string[]): bool
 export function runExpressionPipelineInMemory(
   segments: InMemorySegment[],
   options?: {
-    generateScenarioExample?: (expressionText: string) => string;
+    generateScenarioExample?: (expressionText: string, contextText?: string) => string;
   },
 ): { accepted: Candidate[]; rejected: Candidate[] } {
   const candidateMap = new Map<string, Candidate>();
@@ -303,25 +743,45 @@ export function runExpressionPipelineInMemory(
 
   const accepted: Candidate[] = reevaled
     .filter((candidate) => candidate.decision === "accept")
+    .sort(
+      (left, right) =>
+        right.scoreFinal - left.scoreFinal ||
+        right.occurrences.length - left.occurrences.length ||
+        left.expressionText.localeCompare(right.expressionText),
+    )
+    .slice(0, MAX_ACCEPTED_EXPRESSIONS)
     .map((candidate): Candidate => {
       const makeExample = options?.generateScenarioExample ?? buildScenarioExample;
+      const contextText = segments.find((segment) => segment.id === candidate.occurrences[0]?.segmentId)?.text;
       return {
         ...candidate,
-        meaningJa: buildMeaningJa(candidate.expressionText),
+        meaningJa: buildMeaningJa(candidate.expressionText, contextText),
         reasonShort: buildReason(candidate),
-        scenarioExample: makeExample(candidate.expressionText),
+        scenarioExample: makeExample(candidate.expressionText, contextText),
       };
     });
-  const rejected: Candidate[] = reevaled.filter((candidate) => candidate.decision === "reject");
+  const acceptedTexts = new Set(accepted.map((candidate) => candidate.expressionText));
+  const rejected: Candidate[] = reevaled.filter(
+    (candidate) => candidate.decision === "reject" || !acceptedTexts.has(candidate.expressionText),
+  );
 
   return { accepted, rejected };
 }
 
 function applyFlags(candidate: Candidate): Candidate {
   let next = candidate;
+  const words = candidate.expressionText.split(" ");
+  const advancedSingleWord = words.length === 1 && isAdvancedSingleWord(words[0]);
+  const idiomCandidate = isLikelyPhrasalVerb(words) || isLikelyIdiomPattern(words);
 
-  if (candidate.expressionText.split(" ").length === 1) {
+  if (words.length === 1) {
     next = addFlag(next, "single_word");
+  }
+  if (advancedSingleWord) {
+    next = addFlag(next, "advanced_single_word");
+  }
+  if (idiomCandidate) {
+    next = addFlag(next, "idiom_candidate");
   }
   if (candidate.occurrences.length === 1) {
     next = addFlag(next, "rare_occurrence");
@@ -331,11 +791,11 @@ function applyFlags(candidate: Candidate): Candidate {
   }
 
   let penalty = 0;
-  if (next.flagsFinal.includes("single_word")) {
+  if (next.flagsFinal.includes("single_word") && !next.flagsFinal.includes("advanced_single_word")) {
     penalty += 12;
   }
   if (next.flagsFinal.includes("rare_occurrence")) {
-    penalty += 8;
+    penalty += next.flagsFinal.includes("advanced_single_word") || next.flagsFinal.includes("idiom_candidate") ? 0 : 8;
   }
   if (next.flagsFinal.includes("unsafe_or_inappropriate")) {
     penalty += 100;
@@ -362,11 +822,68 @@ function filterCandidate(expressionText: string): boolean {
   if (expressionText.includes("http")) {
     return false;
   }
+  if (LOW_VALUE_EXACT_PHRASES.has(expressionText)) {
+    return false;
+  }
   const words = expressionText.split(" ");
+  if (words.length > MAX_WORDS_PER_EXPRESSION) {
+    return false;
+  }
   if (words.length === 1 && STOP_WORDS.has(words[0])) {
     return false;
   }
+  if (words.every((word) => FUNCTION_WORDS.has(word))) {
+    return false;
+  }
+  if (words.length >= 2 && ["there", "it", "this", "that", "these", "those"].includes(words[0])) {
+    return false;
+  }
+  if (words.length >= 2 && ["is", "are", "was", "were", "be", "been", "being"].includes(words[1])) {
+    return false;
+  }
+  if (words.length === 1) {
+    return isAdvancedSingleWord(words[0]);
+  }
+  if (PREPOSITIONS.has(words[0])) {
+    return false;
+  }
+  if (["is", "are", "was", "were", "be", "been", "being"].includes(words[0])) {
+    return false;
+  }
+  if (["it", "this", "that", "there", "here"].includes(words[0])) {
+    return false;
+  }
+  if (words[words.length - 1] && FUNCTION_WORDS.has(words[words.length - 1])) {
+    return false;
+  }
+  if (words.every((word) => isCommonWord(word)) && !isLikelyPhrasalVerb(words) && !isLikelyIdiomPattern(words)) {
+    return false;
+  }
+  if (words.length === 2 && !isLikelyPhrasalVerb(words)) {
+    return false;
+  }
+  if (words.length >= 3 && !isLikelyPhrasalVerb(words) && !isLikelyIdiomPattern(words)) {
+    const contentWordCount = words.filter((word) => !FUNCTION_WORDS.has(word)).length;
+    const uncommonWordCount = words.filter((word) => !isCommonWord(word)).length;
+    return contentWordCount >= 2 && uncommonWordCount >= 1;
+  }
   return true;
+}
+
+function selectTopAcceptedCandidates(candidates: Candidate[]): Candidate[] {
+  return candidates
+    .filter(
+      (candidate) =>
+        candidate.decision === "accept" &&
+        !candidate.flagsFinal.includes("unsafe_or_inappropriate"),
+    )
+    .sort(
+      (left, right) =>
+        right.scoreFinal - left.scoreFinal ||
+        right.occurrences.length - left.occurrences.length ||
+        left.expressionText.localeCompare(right.expressionText),
+    )
+    .slice(0, MAX_ACCEPTED_EXPRESSIONS);
 }
 
 function buildInitialCandidate(expressionText: string, occurrence: Occurrence): Candidate {
@@ -425,6 +942,20 @@ async function writeState(materialId: string, pipelineVersion: string, state: Pi
   await stateRef(materialId, pipelineVersion).set(stripUndefined({ ...state, updatedAt: nowTs() }), {
     merge: true,
   });
+}
+
+async function readSegmentTextById(materialId: string): Promise<Map<string, string>> {
+  try {
+    const snapshot = await getAdminDb().collection("materials").doc(materialId).collection("segments").get();
+    return new Map(
+      snapshot.docs.map((segmentDoc) => {
+        const segment = segmentDoc.data() as SegmentRecord;
+        return [segmentDoc.id, segment.text] as const;
+      }),
+    );
+  } catch {
+    return new Map();
+  }
 }
 
 async function readMaterial(materialId: string): Promise<MaterialRecord> {
@@ -582,16 +1113,19 @@ async function runScore(materialId: string, pipelineVersion: string): Promise<vo
 
 async function runReeval(materialId: string, pipelineVersion: string): Promise<void> {
   const state = await readState(materialId, pipelineVersion);
+  const segmentTextById = await readSegmentTextById(materialId);
   const updated = await Promise.all(
     state.candidates.map(async (candidate) => {
+      const contextText = getCandidateContextText(candidate, segmentTextById);
       if (!isOpenAIEnabled()) {
-        const reeval = buildHeuristicReeval(candidate);
+        const reeval = buildHeuristicReeval(candidate, contextText);
         return { ...candidate, decision: reeval.decision, reeval };
       }
 
       try {
         const llmReeval = await reevaluateExpressionWithOpenAI({
           expressionText: candidate.expressionText,
+          contextText,
           scoreFinal: candidate.scoreFinal,
           flagsFinal: candidate.flagsFinal,
           axisScores: candidate.axisScores,
@@ -612,42 +1146,51 @@ async function runReeval(materialId: string, pipelineVersion: string): Promise<v
           },
         };
       } catch (error) {
-        const reeval = buildFallbackReeval(candidate, error);
+        const reeval = buildFallbackReeval(candidate, error, contextText);
         return { ...candidate, decision: reeval.decision, reeval };
       }
     }),
   );
 
-  const accepted = updated.filter((candidate) => candidate.decision === "accept");
+  const accepted = selectTopAcceptedCandidates(updated);
   await writeState(materialId, pipelineVersion, { ...state, candidates: updated, accepted, updatedAt: nowTs() });
 }
 
 async function runExamples(materialId: string, pipelineVersion: string): Promise<void> {
   const state = await readState(materialId, pipelineVersion);
-  const acceptedWithExamples = await Promise.all(
-    state.candidates
-      .filter((candidate) => candidate.decision === "accept")
-      .map(async (candidate) => ({
+  const segmentTextById = await readSegmentTextById(materialId);
+  const acceptedCandidates = selectTopAcceptedCandidates(state.candidates);
+  const acceptedWithDetails = await Promise.all(
+    acceptedCandidates.map(async (candidate) => {
+      const contextText = getCandidateContextText(candidate, segmentTextById);
+      return {
         expressionText: candidate.expressionText,
-        scenarioExample: await buildScenarioExampleAsync(candidate.expressionText),
-      })),
+        meaningJa: await buildMeaningJaAsync(candidate.expressionText, contextText),
+        scenarioExample: await buildScenarioExampleAsync(candidate.expressionText, contextText),
+      };
+    }),
   );
-  const exampleMap = new Map(
-    acceptedWithExamples.map((entry) => [entry.expressionText, entry.scenarioExample]),
-  );
+  const detailMap = new Map(acceptedWithDetails.map((entry) => [entry.expressionText, entry]));
+  const acceptedTexts = new Set(acceptedCandidates.map((candidate) => candidate.expressionText));
 
   const updatedCandidates = state.candidates.map((candidate) => {
-    if (candidate.decision !== "accept") {
+    if (!acceptedTexts.has(candidate.expressionText)) {
+      return candidate.decision === "accept" ? { ...candidate, decision: "reject" as const } : candidate;
+    }
+
+    const contextText = getCandidateContextText(candidate, segmentTextById);
+    const details = detailMap.get(candidate.expressionText);
+    if (!details) {
       return candidate;
     }
     return {
       ...candidate,
-      meaningJa: candidate.reeval?.meaningJa ?? buildMeaningJa(candidate.expressionText),
+      meaningJa: details.meaningJa || buildMeaningJa(candidate.expressionText, contextText),
       reasonShort: candidate.reeval?.reasonShort ?? buildReason(candidate),
-      scenarioExample: exampleMap.get(candidate.expressionText) ?? buildScenarioExample(candidate.expressionText),
+      scenarioExample: details.scenarioExample || buildScenarioExample(candidate.expressionText, contextText),
     };
   });
-  const accepted = updatedCandidates.filter((candidate) => candidate.decision === "accept");
+  const accepted = selectTopAcceptedCandidates(updatedCandidates);
   await writeState(materialId, pipelineVersion, {
     ...state,
     candidates: updatedCandidates,
@@ -659,11 +1202,8 @@ async function runExamples(materialId: string, pipelineVersion: string): Promise
 async function runPersist(materialId: string, pipelineVersion: string): Promise<void> {
   const db = getAdminDb();
   const state = await readState(materialId, pipelineVersion);
-  const accepted = state.accepted.filter(
-    (candidate) =>
-      candidate.scoreFinal >= THRESHOLD &&
-      !candidate.flagsFinal.includes("unsafe_or_inappropriate"),
-  );
+  const segmentTextById = await readSegmentTextById(materialId);
+  const accepted = selectTopAcceptedCandidates(state.accepted);
 
   const acceptedById = accepted
     .map((candidate) => ({
@@ -693,15 +1233,27 @@ async function runPersist(materialId: string, pipelineVersion: string): Promise<
         expressionText: candidate.expressionText,
         scoreFinal: candidate.scoreFinal,
         axisScores: candidate.axisScores,
-        meaningJa: candidate.meaningJa || buildMeaningJa(candidate.expressionText),
+        meaningJa:
+          candidate.meaningJa ||
+          buildMeaningJa(candidate.expressionText, getCandidateContextText(candidate, segmentTextById)),
         reasonShort: candidate.reasonShort || buildReason(candidate),
-        scenarioExample: candidate.scenarioExample || buildScenarioExample(candidate.expressionText),
+        scenarioExample:
+          candidate.scenarioExample ||
+          buildScenarioExample(candidate.expressionText, getCandidateContextText(candidate, segmentTextById)),
         flagsFinal: candidate.flagsFinal,
         occurrences: candidate.occurrences,
         createdAt: existing?.createdAt ?? nowTs(),
       },
       { merge: true },
     );
+  });
+
+  const allExpressionSnapshots = await db.collection("materials").doc(materialId).collection("expressions").get();
+  const keepIds = new Set(acceptedById.map(({ expressionDocId }) => expressionDocId));
+  allExpressionSnapshots.docs.forEach((snapshot) => {
+    if (!keepIds.has(snapshot.id)) {
+      batch.delete(snapshot.ref);
+    }
   });
   await batch.commit();
 

@@ -54,3 +54,7 @@ export async function upsertUserExpression(
     updatedAt: updatedAt.toDate().toISOString(),
   };
 }
+
+export async function deleteUserExpression(uid: string, expressionId: string): Promise<void> {
+  await getAdminDb().collection("users").doc(uid).collection("expressions").doc(expressionId).delete();
+}

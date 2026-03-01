@@ -106,6 +106,7 @@ describe("Learning screen integration", () => {
       expect(screen.getByRole("heading", { name: "take ownership" })).toBeInTheDocument();
       expect(screen.getByText(/責任を持つ/)).toBeInTheDocument();
       expect(screen.getByText("保存済み")).toBeInTheDocument();
+      expect(screen.queryByText("高頻度かつ実用的")).not.toBeInTheDocument();
     });
   });
 
@@ -281,6 +282,115 @@ describe("Learning screen integration", () => {
 
     await waitFor(() => {
       expect(screen.getByText("習得済み")).toBeInTheDocument();
+    });
+  });
+
+  it("clears an active expression status on double click", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/api/materials/mat1")) {
+        return {
+          ok: true,
+          json: async () => ({
+            material: {
+              materialId: "mat1",
+              youtubeId: "dQw4w9WgXcQ",
+              status: "ready",
+              pipelineVersion: "v1",
+            },
+            status: "ready",
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/materials/mat1/segments")) {
+        return {
+          ok: true,
+          json: async () => ({
+            segments: [{ segmentId: "s1", startMs: 1000, endMs: 2000, text: "take ownership now" }],
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/materials/mat1/expressions")) {
+        return {
+          ok: true,
+          json: async () => ({
+            expressions: [
+              {
+                expressionId: "e1",
+                expressionText: "take ownership",
+                scoreFinal: 80,
+                axisScores: {
+                  utility: 80,
+                  portability: 78,
+                  naturalness: 75,
+                  c1_value: 76,
+                  context_robustness: 70,
+                },
+                meaningJa: "責任を持つ",
+                reasonShort: "高頻度かつ実用的",
+                scenarioExample: "I need to take ownership of this task.",
+                flagsFinal: [],
+                occurrences: [{ startMs: 1000, endMs: 2000, segmentId: "s1" }],
+                createdAt: {},
+              },
+            ],
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/users/me/expressions") && init?.method === "GET") {
+        return {
+          ok: true,
+          json: async () => ({
+            expressions: [
+              {
+                expressionId: "e1",
+                status: "saved",
+                updatedAt: "2026-02-28T00:00:00.000Z",
+              },
+            ],
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/users/me/expressions/e1") && init?.method === "DELETE") {
+        return {
+          ok: true,
+          json: async () => ({
+            expressionId: "e1",
+            cleared: true,
+          }),
+        };
+      }
+
+      if (url.endsWith("/api/users/me/expressions/e1") && init?.method === "PUT") {
+        return {
+          ok: true,
+          json: async () => ({
+            expressionId: "e1",
+            status: "saved",
+            updatedAt: "2026-02-28T00:00:00.000Z",
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<MaterialLearningScreen materialId="mat1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("保存済み")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("未設定")).toBeInTheDocument();
     });
   });
 
