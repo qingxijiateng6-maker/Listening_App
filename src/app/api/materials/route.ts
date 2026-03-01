@@ -25,6 +25,40 @@ type MaterialRecord = {
   updatedAt: Timestamp;
 };
 
+function serializeTimestamp(timestamp: Timestamp | null | undefined): string | null {
+  if (!timestamp) {
+    return null;
+  }
+
+  return timestamp.toDate().toISOString();
+}
+
+export async function GET(request: NextRequest) {
+  const user = await resolveRequestUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const db = getAdminDb();
+  const snapshot = await db.collection("materials").orderBy("updatedAt", "desc").limit(50).get();
+
+  return NextResponse.json({
+    materials: snapshot.docs.map((doc) => {
+      const material = doc.data() as MaterialRecord;
+      return {
+        materialId: doc.id,
+        youtubeUrl: material.youtubeUrl,
+        youtubeId: material.youtubeId,
+        title: material.title,
+        channel: material.channel,
+        status: material.status,
+        pipelineVersion: material.pipelineVersion,
+        updatedAt: serializeTimestamp(material.updatedAt),
+      };
+    }),
+  });
+}
+
 export async function POST(request: NextRequest) {
   const user = await resolveRequestUser(request);
   if (!user) {

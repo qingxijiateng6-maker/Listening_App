@@ -20,6 +20,130 @@ main {
   padding: 2rem 1rem;
 }
 
+.homePage {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.homeHeroSection {
+  background: #ffffff;
+  border: 1px solid #d9e0ea;
+  border-radius: 18px;
+  padding: 1.5rem;
+  box-shadow: 0 18px 40px rgba(28, 52, 84, 0.08);
+}
+
+.videoRegistrationSection {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.videoRegistrationLabel {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 0.6rem;
+}
+
+.primaryCtaButton {
+  min-width: 180px;
+}
+
+.videoRegistrationMessage {
+  margin: 0.85rem 0 0;
+  color: #8a231c;
+}
+
+.historyNavigationSection {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.historyNavigationCard {
+  display: grid;
+  gap: 0.6rem;
+  align-content: end;
+  min-height: 180px;
+  padding: 1.2rem;
+  border-radius: 18px;
+  text-decoration: none;
+  border: 1px solid #ced8e6;
+  color: #15304b;
+  background: linear-gradient(160deg, #ffffff 0%, #eef4ff 100%);
+  box-shadow: 0 16px 32px rgba(21, 48, 75, 0.08);
+}
+
+.historyNavigationCard:last-child {
+  background: linear-gradient(160deg, #fffdf7 0%, #fff0d8 100%);
+}
+
+.historyNavigationTitle {
+  font-size: clamp(1.35rem, 3vw, 1.8rem);
+  font-weight: 800;
+}
+
+.historyNavigationDescription {
+  line-height: 1.6;
+  color: #4a6078;
+}
+
+.historyListSection {
+  display: grid;
+  gap: 1rem;
+}
+
+.historyListHeader h1,
+.historyEmptyCard h2,
+.historyListCard h2 {
+  margin: 0;
+}
+
+.historyListHeader p {
+  margin: 0.4rem 0 0;
+  color: #58677b;
+}
+
+.historyListGrid {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.historyListCard,
+.historyEmptyCard {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid #d9e0ea;
+  background: #ffffff;
+  text-decoration: none;
+  color: inherit;
+}
+
+.historyListCardStatus {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  background: #e8eef8;
+  color: #365072;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.historyListCard p,
+.historyEmptyCard p,
+.historyListCardMeta {
+  margin: 0;
+}
+
+.historyListCardMeta {
+  color: #58677b;
+  font-size: 0.88rem;
+}
+
 .learningScreen {
   display: grid;
   gap: 1rem;
@@ -413,6 +537,10 @@ input[disabled] {
   }
 
   .playerTranscriptGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .historyNavigationSection {
     grid-template-columns: 1fr;
   }
 

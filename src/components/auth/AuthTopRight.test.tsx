@@ -64,8 +64,9 @@ describe("AuthTopRight", () => {
     await waitFor(() => {
       expect(screen.getByText("状態: Googleログイン済み")).toBeInTheDocument();
     });
-    expect(screen.getByText("Googleアカウントでログイン中です: user@example.com")).toBeInTheDocument();
     expect(screen.getByText("Googleログイン済み: user@example.com")).toBeInTheDocument();
+    expect(screen.queryByText(/Googleアカウントでログイン/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/uid:/)).not.toBeInTheDocument();
   });
 
   it("shows a linking success message after upgrading an anonymous user", async () => {

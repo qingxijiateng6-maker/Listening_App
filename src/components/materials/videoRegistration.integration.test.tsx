@@ -45,15 +45,17 @@ describe("Video registration integration", () => {
 
     render(<VideoRegistrationForm />);
 
-    fireEvent.change(screen.getByLabelText("YouTube URL"), {
+    fireEvent.change(screen.getByLabelText("Youtube URL"), {
       target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "教材を作成" }));
+    fireEvent.click(screen.getByRole("button", { name: "動画を登録" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(pushMock).toHaveBeenCalledWith("/materials/existing-mat-1");
     });
+
+    expect(screen.queryByText("既存教材を再利用します。")).not.toBeInTheDocument();
   });
 
   it("creates material via API and routes to learning page", async () => {
@@ -67,10 +69,10 @@ describe("Video registration integration", () => {
 
     render(<VideoRegistrationForm />);
 
-    fireEvent.change(screen.getByLabelText("YouTube URL"), {
+    fireEvent.change(screen.getByLabelText("Youtube URL"), {
       target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "教材を作成" }));
+    fireEvent.click(screen.getByRole("button", { name: "動画を登録" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

@@ -46,10 +46,6 @@ export function VideoRegistrationForm() {
         throw new Error(payload.error ?? "動画登録に失敗しました。");
       }
 
-      if (payload.reused) {
-        setMessage("既存教材を再利用します。");
-      }
-
       router.push(`/materials/${payload.materialId}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "動画登録に失敗しました。");
@@ -59,32 +55,33 @@ export function VideoRegistrationForm() {
   }
 
   return (
-    <section>
-      <h2>動画登録</h2>
+    <section className="videoRegistrationSection">
       <form onSubmit={handleSubmit}>
-        <label htmlFor="youtubeUrl">YouTube URL</label>
+        <label htmlFor="youtubeUrl" className="videoRegistrationLabel">
+          Youtube URL
+        </label>
         <input
           id="youtubeUrl"
           name="youtubeUrl"
           type="url"
-          placeholder="https://www.youtube.com/watch?v=..."
+          placeholder=""
           value={youtubeUrl}
           onChange={(event) => setYoutubeUrl(event.target.value)}
           disabled={submitState === "submitting"}
           readOnly={submitState === "submitting"}
           required
         />
-        <button type="submit" disabled={submitState === "submitting"}>
+        <button type="submit" disabled={submitState === "submitting"} className="primaryCtaButton">
           {submitState === "submitting" ? (
             <>
               登録中<span className="loadingDots">...</span>
             </>
           ) : (
-            "教材を作成"
+            "動画を登録"
           )}
         </button>
       </form>
-      {message ? <p>{message}</p> : null}
+      {message ? <p className="videoRegistrationMessage">{message}</p> : null}
     </section>
   );
 }

@@ -90,10 +90,10 @@ describe("registration -> queued job -> learning integration", () => {
 
     render(<VideoRegistrationForm />);
 
-    fireEvent.change(screen.getByLabelText("YouTube URL"), {
+    fireEvent.change(screen.getByLabelText("Youtube URL"), {
       target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "教材を作成" }));
+    fireEvent.click(screen.getByRole("button", { name: "動画を登録" }));
 
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/materials/mat1");
