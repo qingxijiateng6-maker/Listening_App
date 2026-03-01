@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthMock = vi.fn();
+const getRedirectResultMock = vi.fn();
 const linkWithPopupMock = vi.fn();
+const linkWithRedirectMock = vi.fn();
 const signInWithPopupMock = vi.fn();
+const signInWithRedirectMock = vi.fn();
 const signInAnonymouslyMock = vi.fn();
 const onAuthStateChangedMock = vi.fn();
 const googleAuthProviderSetCustomParametersMock = vi.fn();
@@ -16,8 +19,11 @@ vi.mock("firebase/auth", () => ({
     }
   },
   getAuth: (...args: Parameters<typeof getAuthMock>) => getAuthMock(...args),
+  getRedirectResult: (...args: Parameters<typeof getRedirectResultMock>) => getRedirectResultMock(...args),
   linkWithPopup: (...args: Parameters<typeof linkWithPopupMock>) => linkWithPopupMock(...args),
+  linkWithRedirect: (...args: Parameters<typeof linkWithRedirectMock>) => linkWithRedirectMock(...args),
   onAuthStateChanged: (...args: Parameters<typeof onAuthStateChangedMock>) => onAuthStateChangedMock(...args),
+  signInWithRedirect: (...args: Parameters<typeof signInWithRedirectMock>) => signInWithRedirectMock(...args),
   signInWithPopup: (...args: Parameters<typeof signInWithPopupMock>) => signInWithPopupMock(...args),
   signInAnonymously: (...args: Parameters<typeof signInAnonymouslyMock>) => signInAnonymouslyMock(...args),
 }));
@@ -29,6 +35,8 @@ vi.mock("@/lib/firebase/client", () => ({
 
 import {
   buildAuthenticatedRequestHeaders,
+  completeGoogleRedirectSignIn,
+  getFirebaseAuthErrorCode,
   getFirebaseAuthErrorMessage,
   signInAnonymouslyIfNeeded,
   signInWithGoogle,
@@ -38,8 +46,11 @@ import {
 describe("firebase auth helpers", () => {
   beforeEach(() => {
     getAuthMock.mockReset();
+    getRedirectResultMock.mockReset();
     linkWithPopupMock.mockReset();
+    linkWithRedirectMock.mockReset();
     signInWithPopupMock.mockReset();
+    signInWithRedirectMock.mockReset();
     signInAnonymouslyMock.mockReset();
     onAuthStateChangedMock.mockReset();
     googleAuthProviderSetCustomParametersMock.mockReset();
@@ -47,11 +58,20 @@ describe("firebase auth helpers", () => {
     getFirebaseClientErrorMock.mockReset();
     tryGetFirebaseAppMock.mockReturnValue({ name: "app" });
     getAuthMock.mockReturnValue({ currentUser: null });
+    getRedirectResultMock.mockResolvedValue(null);
     getFirebaseClientErrorMock.mockReturnValue(null);
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: vi.fn(),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("signs in anonymously only when no current user exists", async () => {
@@ -120,6 +140,44 @@ describe("firebase auth helpers", () => {
 
     await expect(signInWithGoogle()).rejects.toThrow("Googleログインがキャンセルされました。");
     expect(getFirebaseAuthErrorMessage()).toBe("Googleログインがキャンセルされました。");
+    expect(getFirebaseAuthErrorCode()).toBe("auth/popup-closed-by-user");
+  });
+
+  it("falls back to redirect when popup sign-in is blocked", async () => {
+    getAuthMock.mockReturnValue({
+      currentUser: null,
+    });
+    signInWithPopupMock.mockRejectedValue({
+      code: "auth/popup-blocked",
+      message: "popup blocked",
+    });
+
+    await expect(signInWithGoogle()).resolves.toMatchObject({
+      method: "redirect",
+    });
+    expect(signInWithRedirectMock).toHaveBeenCalledOnce();
+  });
+
+  it("completes a pending redirect sign-in", async () => {
+    const getItemMock = vi.fn().mockReturnValue("linked");
+    const removeItemMock = vi.fn();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: getItemMock,
+        setItem: vi.fn(),
+        removeItem: removeItemMock,
+      },
+    });
+    const redirectedUser = { uid: "google-uid", isAnonymous: false, email: "user@example.com" };
+    getRedirectResultMock.mockResolvedValue({
+      user: redirectedUser,
+    });
+
+    await expect(completeGoogleRedirectSignIn()).resolves.toEqual({
+      user: redirectedUser,
+      method: "linked",
+    });
+    expect(removeItemMock).toHaveBeenCalledOnce();
   });
 
   it("surfaces auth state subscription failures as short errors", () => {
@@ -133,5 +191,6 @@ describe("firebase auth helpers", () => {
 
     expect(callback).toHaveBeenCalledWith(null);
     expect(getFirebaseAuthErrorMessage()).toBe("subscription failed");
+    expect(getFirebaseAuthErrorCode()).toBe("unknown");
   });
 });

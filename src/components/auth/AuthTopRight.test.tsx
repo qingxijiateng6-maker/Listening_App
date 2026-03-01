@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { AuthTopRight } from "@/components/auth/AuthTopRight";
 
 const authMocks = vi.hoisted(() => ({
+  completeGoogleRedirectSignInMock: vi.fn(),
+  getFirebaseAuthErrorCodeMock: vi.fn(),
   getFirebaseAuthErrorMessageMock: vi.fn(),
   signInAnonymouslyIfNeededMock: vi.fn(),
   signInWithGoogleMock: vi.fn(),
@@ -11,6 +13,8 @@ const authMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/firebase/auth", () => ({
+  completeGoogleRedirectSignIn: authMocks.completeGoogleRedirectSignInMock,
+  getFirebaseAuthErrorCode: authMocks.getFirebaseAuthErrorCodeMock,
   getFirebaseAuthErrorMessage: authMocks.getFirebaseAuthErrorMessageMock,
   signInAnonymouslyIfNeeded: authMocks.signInAnonymouslyIfNeededMock,
   signInWithGoogle: authMocks.signInWithGoogleMock,
@@ -19,6 +23,8 @@ vi.mock("@/lib/firebase/auth", () => ({
 
 describe("AuthTopRight", () => {
   it("keeps the page usable and shows a short error when auth initialization fails", async () => {
+    authMocks.completeGoogleRedirectSignInMock.mockResolvedValue(null);
+    authMocks.getFirebaseAuthErrorCodeMock.mockReturnValue("unknown");
     authMocks.getFirebaseAuthErrorMessageMock.mockReturnValue("Firebase設定が不足しています。");
     authMocks.subscribeAuthStateMock.mockImplementation((callback: (user: null) => void) => {
       callback(null);
@@ -34,9 +40,12 @@ describe("AuthTopRight", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("Firebase設定が不足しています。");
     });
+    expect(screen.getByText("debug code: unknown")).toBeInTheDocument();
   });
 
   it("shows authenticated status when google user is signed in", async () => {
+    authMocks.completeGoogleRedirectSignInMock.mockResolvedValue(null);
+    authMocks.getFirebaseAuthErrorCodeMock.mockReturnValue("unknown");
     authMocks.getFirebaseAuthErrorMessageMock.mockReturnValue("");
     authMocks.subscribeAuthStateMock.mockImplementation(
       (callback: (user: { uid: string; isAnonymous: boolean; email: string }) => void) => {
@@ -60,6 +69,8 @@ describe("AuthTopRight", () => {
   });
 
   it("shows a linking success message after upgrading an anonymous user", async () => {
+    authMocks.completeGoogleRedirectSignInMock.mockResolvedValue(null);
+    authMocks.getFirebaseAuthErrorCodeMock.mockReturnValue("unknown");
     authMocks.getFirebaseAuthErrorMessageMock.mockReturnValue("");
     authMocks.subscribeAuthStateMock.mockImplementation(
       (callback: (user: { uid: string; isAnonymous: boolean; email: string }) => void) => {
@@ -87,6 +98,8 @@ describe("AuthTopRight", () => {
   });
 
   it("shows a friendly google login error message", async () => {
+    authMocks.completeGoogleRedirectSignInMock.mockResolvedValue(null);
+    authMocks.getFirebaseAuthErrorCodeMock.mockReturnValue("auth/popup-closed-by-user");
     authMocks.getFirebaseAuthErrorMessageMock.mockReturnValue("");
     authMocks.subscribeAuthStateMock.mockImplementation((callback: (user: null) => void) => {
       callback(null);
@@ -101,6 +114,56 @@ describe("AuthTopRight", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("Googleログインがキャンセルされました。");
+    });
+    expect(screen.getByText("debug code: auth/popup-closed-by-user")).toBeInTheDocument();
+  });
+
+  it("shows a redirect status message when popup login falls back to redirect", async () => {
+    authMocks.completeGoogleRedirectSignInMock.mockResolvedValue(null);
+    authMocks.getFirebaseAuthErrorCodeMock.mockReturnValue("unknown");
+    authMocks.getFirebaseAuthErrorMessageMock.mockReturnValue("");
+    authMocks.subscribeAuthStateMock.mockImplementation((callback: (user: null) => void) => {
+      callback(null);
+      return () => undefined;
+    });
+    authMocks.signInAnonymouslyIfNeededMock.mockResolvedValue(null);
+    authMocks.signInWithGoogleMock.mockResolvedValue({
+      user: null,
+      method: "redirect",
+    });
+
+    render(<AuthTopRight />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Googleでログイン" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Googleログイン画面へ移動しています。")).toBeInTheDocument();
+    });
+  });
+
+  it("shows a success message after returning from redirect login", async () => {
+    authMocks.completeGoogleRedirectSignInMock.mockResolvedValue({
+      user: { uid: "google-uid", isAnonymous: false, email: "user@example.com" },
+      method: "linked",
+    });
+    authMocks.getFirebaseAuthErrorCodeMock.mockReturnValue("unknown");
+    authMocks.getFirebaseAuthErrorMessageMock.mockReturnValue("");
+    authMocks.subscribeAuthStateMock.mockImplementation(
+      (callback: (user: { uid: string; isAnonymous: boolean; email: string }) => void) => {
+        callback({
+          uid: "google-uid",
+          isAnonymous: false,
+          email: "user@example.com",
+        });
+        return () => undefined;
+      },
+    );
+    authMocks.signInAnonymouslyIfNeededMock.mockResolvedValue(null);
+
+    render(<AuthTopRight />);
+
+    await waitFor(() => {
+      expect(screen.getByText("匿名ユーザーをGoogleアカウントに連携しました。")).toBeInTheDocument();
     });
   });
 });

@@ -1,8 +1,11 @@
 import {
   GoogleAuthProvider,
   getAuth,
+  getRedirectResult,
   linkWithPopup,
+  linkWithRedirect,
   onAuthStateChanged,
+  signInWithRedirect,
   signInWithPopup,
   signInAnonymously,
   type AuthError,
@@ -11,18 +14,28 @@ import {
 } from "firebase/auth";
 import { getFirebaseClientError, tryGetFirebaseApp } from "@/lib/firebase/client";
 
-let firebaseAuthError: Error | null = null;
+type FirebaseAuthDebugError = Error & {
+  firebaseAuthCode?: string;
+};
+
+let firebaseAuthError: FirebaseAuthDebugError | null = null;
+const GOOGLE_AUTH_REDIRECT_METHOD_KEY = "listening-app-google-auth-redirect-method";
 const GOOGLE_LINK_FALLBACK_ERROR_CODES = new Set([
   "auth/credential-already-in-use",
   "auth/provider-already-linked",
 ]);
+const GOOGLE_REDIRECT_FALLBACK_ERROR_CODES = new Set([
+  "auth/popup-blocked",
+  "auth/cancelled-popup-request",
+  "auth/operation-not-supported-in-this-environment",
+]);
 
 export type GoogleSignInResult = {
-  user: User;
-  method: "linked" | "signed_in";
+  user: User | null;
+  method: "linked" | "signed_in" | "redirect";
 };
 
-function setFirebaseAuthError(error: Error | null): void {
+function setFirebaseAuthError(error: FirebaseAuthDebugError | null): void {
   firebaseAuthError = error;
 }
 
@@ -43,22 +56,72 @@ function getFirebaseAuthActionErrorMessage(error: AuthError | Error): string {
   }
 }
 
-function toFirebaseAuthError(error: unknown): Error {
+function toFirebaseAuthError(error: unknown): FirebaseAuthDebugError {
   if (error instanceof Error) {
-    return new Error(getFirebaseAuthActionErrorMessage(error));
+    const nextError = new Error(getFirebaseAuthActionErrorMessage(error)) as FirebaseAuthDebugError;
+    const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
+    if (code) {
+      nextError.firebaseAuthCode = code;
+    }
+    return nextError;
   }
   if (error && typeof error === "object") {
     const authError = error as Partial<AuthError>;
-    return new Error(
+    const nextError = new Error(
       getFirebaseAuthActionErrorMessage({
         name: authError.name ?? "FirebaseAuthError",
         message: authError.message ?? "",
         code: authError.code ?? "",
       } as AuthError),
-    );
+    ) as FirebaseAuthDebugError;
+    if (typeof authError.code === "string" && authError.code.length > 0) {
+      nextError.firebaseAuthCode = authError.code;
+    }
+    return nextError;
   }
 
-  return new Error("認証を初期化できません。");
+  return new Error("認証を初期化できません。") as FirebaseAuthDebugError;
+}
+
+function persistRedirectMethod(method: "linked" | "signed_in"): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(GOOGLE_AUTH_REDIRECT_METHOD_KEY, method);
+}
+
+function readAndClearRedirectMethod(): "linked" | "signed_in" {
+  if (typeof window === "undefined") {
+    return "signed_in";
+  }
+
+  const method = window.sessionStorage.getItem(GOOGLE_AUTH_REDIRECT_METHOD_KEY);
+  window.sessionStorage.removeItem(GOOGLE_AUTH_REDIRECT_METHOD_KEY);
+  return method === "linked" ? "linked" : "signed_in";
+}
+
+async function fallbackToGoogleRedirect(
+  currentUser: User | null,
+  provider: GoogleAuthProvider,
+  method: "linked" | "signed_in",
+): Promise<GoogleSignInResult> {
+  persistRedirectMethod(method);
+
+  if (currentUser && method === "linked") {
+    await linkWithRedirect(currentUser, provider);
+  } else {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      throw getFirebaseAuthError() ?? new Error("認証を初期化できません。");
+    }
+    await signInWithRedirect(auth, provider);
+  }
+
+  return {
+    user: currentUser,
+    method: "redirect",
+  };
 }
 
 export function getFirebaseAuth() {
@@ -81,12 +144,23 @@ export function getFirebaseAuth() {
   }
 }
 
-export function getFirebaseAuthError(): Error | null {
-  return firebaseAuthError ?? getFirebaseClientError();
+export function getFirebaseAuthError(): FirebaseAuthDebugError | null {
+  const clientError = getFirebaseClientError();
+  if (firebaseAuthError) {
+    return firebaseAuthError;
+  }
+  if (!clientError) {
+    return null;
+  }
+  return clientError as FirebaseAuthDebugError;
 }
 
 export function getFirebaseAuthErrorMessage(): string {
   return getFirebaseAuthError()?.message ?? "";
+}
+
+export function getFirebaseAuthErrorCode(): string {
+  return getFirebaseAuthError()?.firebaseAuthCode ?? "unknown";
 }
 
 export async function buildAuthenticatedRequestHeaders(): Promise<Record<string, string>> {
@@ -163,6 +237,31 @@ export function subscribeAuthState(callback: (user: User | null) => void): Unsub
   }
 }
 
+export async function completeGoogleRedirectSignIn(): Promise<GoogleSignInResult | null> {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    return null;
+  }
+
+  try {
+    const credential = await getRedirectResult(auth);
+    if (!credential) {
+      return null;
+    }
+
+    setFirebaseAuthError(null);
+    return {
+      user: credential.user,
+      method: readAndClearRedirectMethod(),
+    };
+  } catch (error) {
+    readAndClearRedirectMethod();
+    const nextError = toFirebaseAuthError(error);
+    setFirebaseAuthError(nextError);
+    throw nextError;
+  }
+}
+
 export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   const auth = getFirebaseAuth();
   if (!auth) {
@@ -191,10 +290,19 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
             method: "signed_in",
           };
         } catch (signInError) {
+          const signInAuthError = signInError as AuthError;
+          if (GOOGLE_REDIRECT_FALLBACK_ERROR_CODES.has(signInAuthError.code)) {
+            return fallbackToGoogleRedirect(null, provider, "signed_in");
+          }
+
           const nextError = toFirebaseAuthError(signInError);
           setFirebaseAuthError(nextError);
           throw nextError;
         }
+      }
+
+      if (GOOGLE_REDIRECT_FALLBACK_ERROR_CODES.has(authError.code)) {
+        return fallbackToGoogleRedirect(auth.currentUser, provider, "linked");
       }
 
       const nextError = toFirebaseAuthError(error);
@@ -211,6 +319,11 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
       method: "signed_in",
     };
   } catch (error) {
+    const authError = error as AuthError;
+    if (GOOGLE_REDIRECT_FALLBACK_ERROR_CODES.has(authError.code)) {
+      return fallbackToGoogleRedirect(null, provider, "signed_in");
+    }
+
     const nextError = toFirebaseAuthError(error);
     setFirebaseAuthError(nextError);
     throw nextError;
