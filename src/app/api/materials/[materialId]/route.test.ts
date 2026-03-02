@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 import { DELETE, GET } from "@/app/api/materials/[materialId]/route";
 
 const getMaterialMock = vi.fn();
@@ -24,7 +25,7 @@ describe("GET /api/materials/[materialId]", () => {
   it("returns 401 when the user is not authenticated", async () => {
     resolveRequestUserMock.mockResolvedValueOnce(null);
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -36,7 +37,7 @@ describe("GET /api/materials/[materialId]", () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     getMaterialMock.mockResolvedValueOnce(null);
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -60,7 +61,7 @@ describe("GET /api/materials/[materialId]", () => {
       updatedAt: { seconds: 20, nanoseconds: 0, toMillis: () => 20000 },
     });
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -93,7 +94,7 @@ describe("DELETE /api/materials/[materialId]", () => {
   it("returns 401 when the user is not authenticated", async () => {
     resolveRequestUserMock.mockResolvedValueOnce(null);
 
-    const response = await DELETE(new Request("http://localhost/api/materials/mat-1"), {
+    const response = await DELETE(new NextRequest("http://localhost/api/materials/mat-1"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -105,7 +106,7 @@ describe("DELETE /api/materials/[materialId]", () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     deleteMaterialMock.mockResolvedValueOnce(null);
 
-    const response = await DELETE(new Request("http://localhost/api/materials/mat-1"), {
+    const response = await DELETE(new NextRequest("http://localhost/api/materials/mat-1"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -118,7 +119,7 @@ describe("DELETE /api/materials/[materialId]", () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     deleteMaterialMock.mockResolvedValueOnce(true);
 
-    const response = await DELETE(new Request("http://localhost/api/materials/mat-1"), {
+    const response = await DELETE(new NextRequest("http://localhost/api/materials/mat-1"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 

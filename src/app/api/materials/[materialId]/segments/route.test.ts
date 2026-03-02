@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 import { GET } from "@/app/api/materials/[materialId]/segments/route";
 
 const listMaterialSegmentsMock = vi.fn();
@@ -21,7 +22,7 @@ describe("GET /api/materials/[materialId]/segments", () => {
   it("returns 401 when the user is not authenticated", async () => {
     resolveRequestUserMock.mockResolvedValueOnce(null);
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1/segments"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1/segments"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -33,7 +34,7 @@ describe("GET /api/materials/[materialId]/segments", () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     listMaterialSegmentsMock.mockResolvedValueOnce(null);
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1/segments"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1/segments"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -53,7 +54,7 @@ describe("GET /api/materials/[materialId]/segments", () => {
       },
     ]);
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1/segments"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1/segments"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 import { GET, POST } from "@/app/api/materials/[materialId]/expressions/route";
 
 const listMaterialExpressionsMock = vi.fn();
@@ -24,7 +25,7 @@ describe("GET /api/materials/[materialId]/expressions", () => {
   it("returns 401 when the user is not authenticated", async () => {
     resolveRequestUserMock.mockResolvedValueOnce(null);
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1/expressions"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1/expressions"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -36,7 +37,7 @@ describe("GET /api/materials/[materialId]/expressions", () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     listMaterialExpressionsMock.mockResolvedValueOnce(null);
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1/expressions"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1/expressions"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -56,7 +57,7 @@ describe("GET /api/materials/[materialId]/expressions", () => {
       },
     ]);
 
-    const response = await GET(new Request("http://localhost/api/materials/mat-1/expressions"), {
+    const response = await GET(new NextRequest("http://localhost/api/materials/mat-1/expressions"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
@@ -85,7 +86,7 @@ describe("POST /api/materials/[materialId]/expressions", () => {
     resolveRequestUserMock.mockResolvedValueOnce(null);
 
     const response = await POST(
-      new Request("http://localhost/api/materials/mat-1/expressions", {
+      new NextRequest("http://localhost/api/materials/mat-1/expressions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expression: "hello", meaning: "意味", exampleSentence: "example" }),
@@ -102,7 +103,7 @@ describe("POST /api/materials/[materialId]/expressions", () => {
   it("returns 400 for invalid payloads", async () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     const response = await POST(
-      new Request("http://localhost/api/materials/mat-1/expressions", {
+      new NextRequest("http://localhost/api/materials/mat-1/expressions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expression: "hello", meaning: "" }),
@@ -130,7 +131,7 @@ describe("POST /api/materials/[materialId]/expressions", () => {
     });
 
     const response = await POST(
-      new Request("http://localhost/api/materials/mat-1/expressions", {
+      new NextRequest("http://localhost/api/materials/mat-1/expressions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

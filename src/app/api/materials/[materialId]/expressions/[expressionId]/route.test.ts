@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 import { DELETE } from "@/app/api/materials/[materialId]/expressions/[expressionId]/route";
 
 const deleteMaterialExpressionMock = vi.fn();
@@ -21,7 +22,7 @@ describe("DELETE /api/materials/[materialId]/expressions/[expressionId]", () => 
   it("returns 401 when the user is not authenticated", async () => {
     resolveRequestUserMock.mockResolvedValueOnce(null);
 
-    const response = await DELETE(new Request("http://localhost/api/materials/mat-1/expressions/exp-1"), {
+    const response = await DELETE(new NextRequest("http://localhost/api/materials/mat-1/expressions/exp-1"), {
       params: Promise.resolve({ materialId: "mat-1", expressionId: "exp-1" }),
     });
 
@@ -33,7 +34,7 @@ describe("DELETE /api/materials/[materialId]/expressions/[expressionId]", () => 
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     deleteMaterialExpressionMock.mockResolvedValueOnce(null);
 
-    const response = await DELETE(new Request("http://localhost/api/materials/mat-1/expressions/exp-1"), {
+    const response = await DELETE(new NextRequest("http://localhost/api/materials/mat-1/expressions/exp-1"), {
       params: Promise.resolve({ materialId: "mat-1", expressionId: "exp-1" }),
     });
 
@@ -45,7 +46,7 @@ describe("DELETE /api/materials/[materialId]/expressions/[expressionId]", () => 
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     deleteMaterialExpressionMock.mockResolvedValueOnce(false);
 
-    const response = await DELETE(new Request("http://localhost/api/materials/mat-1/expressions/exp-1"), {
+    const response = await DELETE(new NextRequest("http://localhost/api/materials/mat-1/expressions/exp-1"), {
       params: Promise.resolve({ materialId: "mat-1", expressionId: "exp-1" }),
     });
 
@@ -57,7 +58,7 @@ describe("DELETE /api/materials/[materialId]/expressions/[expressionId]", () => 
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     deleteMaterialExpressionMock.mockResolvedValueOnce(true);
 
-    const response = await DELETE(new Request("http://localhost/api/materials/mat-1/expressions/exp-1"), {
+    const response = await DELETE(new NextRequest("http://localhost/api/materials/mat-1/expressions/exp-1"), {
       params: Promise.resolve({ materialId: "mat-1", expressionId: "exp-1" }),
     });
 

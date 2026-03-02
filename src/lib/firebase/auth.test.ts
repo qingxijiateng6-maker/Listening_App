@@ -136,7 +136,7 @@ describe("firebase auth helpers", () => {
   });
 
   it("signs out anonymous users before starting popup sign-in", async () => {
-    const auth = {
+    const auth: { currentUser: { uid: string; isAnonymous: boolean } | null } = {
       currentUser: { uid: "anon-uid", isAnonymous: true },
     };
     const googleUser = { uid: "google-uid", isAnonymous: false, email: "user@example.com" };
@@ -156,7 +156,7 @@ describe("firebase auth helpers", () => {
   });
 
   it("starts popup sign-in for signed-out users", async () => {
-    const auth = {
+    const auth: { currentUser: { uid: string; isAnonymous: boolean } | null } = {
       currentUser: null,
     };
     const googleUser = { uid: "google-uid", isAnonymous: false, email: "user@example.com" };
@@ -172,7 +172,7 @@ describe("firebase auth helpers", () => {
   });
 
   it("returns friendly popup sign-in errors", async () => {
-    const auth = {
+    const auth: { currentUser: { uid: string; isAnonymous: boolean } | null } = {
       currentUser: null,
     };
     getAuthMock.mockReturnValue(auth);
