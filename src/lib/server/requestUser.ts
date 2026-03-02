@@ -3,7 +3,7 @@ import { getAdminAuth } from "@/lib/firebase/admin";
 
 export type RequestUser = {
   uid: string;
-  source: "firebase-id-token";
+  source: "firebase-id-token" | "x-user-id";
 };
 
 function readBearerToken(request: NextRequest): string {
@@ -12,6 +12,18 @@ function readBearerToken(request: NextRequest): string {
     return "";
   }
   return authHeader.slice("bearer ".length).trim();
+}
+
+function readHeaderFallbackUser(request: NextRequest): RequestUser | null {
+  const uid = request.headers.get("x-user-id")?.trim() ?? "";
+  if (!uid) {
+    return null;
+  }
+
+  return {
+    uid,
+    source: "x-user-id",
+  };
 }
 
 async function resolveFirebaseIdTokenUser(request: NextRequest): Promise<RequestUser | null> {
@@ -32,5 +44,10 @@ async function resolveFirebaseIdTokenUser(request: NextRequest): Promise<Request
 }
 
 export async function resolveRequestUser(request: NextRequest): Promise<RequestUser | null> {
-  return resolveFirebaseIdTokenUser(request);
+  const firebaseUser = await resolveFirebaseIdTokenUser(request);
+  if (firebaseUser) {
+    return firebaseUser;
+  }
+
+  return readHeaderFallbackUser(request);
 }

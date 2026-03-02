@@ -124,6 +124,23 @@ describe("GET /api/materials", () => {
     });
   });
 
+  it("accepts the header fallback user returned by resolveRequestUser", async () => {
+    resolveRequestUserMock.mockResolvedValueOnce({ uid: "fallback-user", source: "x-user-id" });
+    const getMock = vi.fn().mockResolvedValue({ docs: [] });
+    const whereMock = vi.fn().mockReturnValue({ get: getMock });
+    getAdminDbMock.mockReturnValue({
+      collection: vi.fn().mockReturnValue({
+        where: whereMock,
+      }),
+    });
+
+    const response = await GET(toNextRequest(new Request("http://localhost/api/materials")));
+
+    expect(response.status).toBe(200);
+    expect(whereMock).toHaveBeenCalledWith("ownerUid", "==", "fallback-user");
+    await expect(response.json()).resolves.toEqual({ materials: [] });
+  });
+
   it("returns a JSON 500 when the material lookup throws", async () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     const getMock = vi.fn().mockRejectedValue(new Error("db exploded"));
@@ -237,6 +254,57 @@ describe("POST /api/materials", () => {
       jobId: "job-1",
       reused: false,
     });
+  });
+
+  it("creates materials for the header fallback user returned by resolveRequestUser", async () => {
+    resolveRequestUserMock.mockResolvedValueOnce({ uid: "fallback-user", source: "x-user-id" });
+    parseYouTubeUrlMock.mockReturnValueOnce({
+      youtubeId: "dQw4w9WgXcQ",
+      normalizedUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
+    isPubliclyAccessibleYouTubeVideoMock.mockResolvedValueOnce(true);
+    buildMaterialPipelineJobIdMock.mockReturnValueOnce("job-1");
+    createWorkerIdMock.mockReturnValueOnce("worker-1");
+    enqueueMaterialPipelineJobMock.mockResolvedValueOnce("job-1");
+    runJobToCompletionMock.mockResolvedValueOnce({ result: "done" });
+
+    const setMock = vi.fn().mockResolvedValue(undefined);
+    const materialRef = {
+      id: "mat-1",
+      set: setMock,
+    };
+    const docMock = vi
+      .fn()
+      .mockReturnValueOnce(materialRef)
+      .mockReturnValueOnce({
+        get: vi.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({ status: "ready" }),
+        }),
+      });
+    const getMock = vi.fn().mockResolvedValue({ docs: [] });
+    const whereMock = vi.fn().mockReturnValue({ get: getMock });
+    getAdminDbMock.mockReturnValue({
+      collection: vi.fn().mockReturnValue({
+        where: whereMock,
+        doc: docMock,
+      }),
+    });
+
+    const response = await POST(
+      toNextRequest(new Request("http://localhost/api/materials", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }),
+      })),
+    );
+
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerUid: "fallback-user",
+      }),
+    );
+    expect(response.status).toBe(200);
   });
 
   it("returns a JSON 500 when material creation throws", async () => {
