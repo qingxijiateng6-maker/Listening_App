@@ -3,7 +3,7 @@ import { getAdminAuth } from "@/lib/firebase/admin";
 
 export type RequestUser = {
   uid: string;
-  source: "anonymous-header" | "firebase-id-token";
+  source: "firebase-id-token";
 };
 
 function readBearerToken(request: NextRequest): string {
@@ -31,18 +31,6 @@ async function resolveFirebaseIdTokenUser(request: NextRequest): Promise<Request
   }
 }
 
-function resolveAnonymousHeaderUser(request: NextRequest): RequestUser | null {
-  const uid = request.headers.get("x-user-id")?.trim() ?? "";
-  if (!uid) {
-    return null;
-  }
-
-  return {
-    uid,
-    source: "anonymous-header",
-  };
-}
-
 export async function resolveRequestUser(request: NextRequest): Promise<RequestUser | null> {
-  return (await resolveFirebaseIdTokenUser(request)) ?? resolveAnonymousHeaderUser(request);
+  return resolveFirebaseIdTokenUser(request);
 }

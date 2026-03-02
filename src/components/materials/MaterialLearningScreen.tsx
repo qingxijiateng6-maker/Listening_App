@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Material, Segment } from "@/types/domain";
 import { YouTubeIFramePlayer } from "@/components/materials/YouTubeIFramePlayer";
+import { buildAuthenticatedRequestHeaders } from "@/lib/firebase/auth";
 
 type Props = {
   materialId: string;
@@ -97,8 +98,10 @@ export function MaterialLearningScreen({ materialId }: Props) {
     const controller = new AbortController();
 
     async function fetchJson<T>(url: string): Promise<T> {
+      const authHeaders = await buildAuthenticatedRequestHeaders();
       const response = await fetch(url, {
         method: "GET",
+        headers: authHeaders,
         signal: controller.signal,
       });
 
@@ -154,10 +157,12 @@ export function MaterialLearningScreen({ materialId }: Props) {
         setSelectedSegmentId(nextSegments[0]?.id ?? "");
 
         if (blankExpressions.length > 0) {
+          const authHeaders = await buildAuthenticatedRequestHeaders();
           void Promise.allSettled(
             blankExpressions.map((expression) =>
               fetch(`/api/materials/${materialId}/expressions/${expression.expressionId}`, {
                 method: "DELETE",
+                headers: authHeaders,
               }),
             ),
           );
@@ -244,10 +249,12 @@ export function MaterialLearningScreen({ materialId }: Props) {
     setIsSavingExpression(true);
     setExpressionError("");
     try {
+      const authHeaders = await buildAuthenticatedRequestHeaders();
       const response = await fetch(`/api/materials/${materialId}/expressions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...authHeaders,
         },
         body: JSON.stringify({
           expression,
@@ -280,8 +287,10 @@ export function MaterialLearningScreen({ materialId }: Props) {
     setDeletingExpressionId(expressionId);
     setExpressionError("");
     try {
+      const authHeaders = await buildAuthenticatedRequestHeaders();
       const response = await fetch(`/api/materials/${materialId}/expressions/${expressionId}`, {
         method: "DELETE",
+        headers: authHeaders,
       });
 
       if (!response.ok) {

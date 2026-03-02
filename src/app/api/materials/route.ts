@@ -14,6 +14,7 @@ type CreateMaterialBody = {
 };
 
 type MaterialRecord = {
+  ownerUid: string;
   youtubeUrl: string;
   youtubeId: string;
   title: string;
@@ -40,13 +41,22 @@ export async function GET(request: NextRequest) {
   }
 
   const db = getAdminDb();
-  const snapshot = await db.collection("materials").orderBy("updatedAt", "desc").limit(50).get();
+  const snapshot = await db.collection("materials").where("ownerUid", "==", user.uid).get();
+  const materialDocs = snapshot.docs
+    .map((doc) => ({
+      id: doc.id,
+      material: doc.data() as MaterialRecord,
+    }))
+    .sort(
+      (left, right) =>
+        (right.material.updatedAt?.toMillis?.() ?? 0) - (left.material.updatedAt?.toMillis?.() ?? 0),
+    )
+    .slice(0, 50);
 
   return NextResponse.json({
-    materials: snapshot.docs.map((doc) => {
-      const material = doc.data() as MaterialRecord;
+    materials: materialDocs.map(({ id, material }) => {
       return {
-        materialId: doc.id,
+        materialId: id,
         youtubeUrl: material.youtubeUrl,
         youtubeId: material.youtubeId,
         title: material.title,
@@ -77,22 +87,22 @@ export async function POST(request: NextRequest) {
   }
 
   const db = getAdminDb();
-  const existingSnapshot = await db
-    .collection("materials")
-    .where("youtubeId", "==", parsed.youtubeId)
-    .where("pipelineVersion", "==", MATERIAL_PIPELINE_VERSION)
-    .limit(1)
-    .get();
+  const existingSnapshot = await db.collection("materials").where("ownerUid", "==", user.uid).get();
+  const existingDoc = existingSnapshot.docs.find((doc) => {
+    const material = doc.data() as Partial<MaterialRecord>;
+    return material.youtubeId === parsed.youtubeId && material.pipelineVersion === MATERIAL_PIPELINE_VERSION;
+  });
 
-  let materialId = existingSnapshot.empty ? "" : existingSnapshot.docs[0].id;
-  let materialStatus: MaterialRecord["status"] = existingSnapshot.empty
+  let materialId = existingDoc?.id ?? "";
+  let materialStatus: MaterialRecord["status"] = !existingDoc
     ? "queued"
-    : ((existingSnapshot.docs[0].data() as MaterialRecord).status ?? "queued");
+    : (((existingDoc.data() as MaterialRecord).status ?? "queued") as MaterialRecord["status"]);
 
-  if (existingSnapshot.empty) {
+  if (!existingDoc) {
     const now = Timestamp.now();
     const materialRef = db.collection("materials").doc();
     const material: MaterialRecord = {
+      ownerUid: user.uid,
       youtubeUrl: parsed.normalizedUrl,
       youtubeId: parsed.youtubeId,
       title: "",
@@ -123,6 +133,6 @@ export async function POST(request: NextRequest) {
     materialId,
     status: materialStatus,
     jobId,
-    reused: !existingSnapshot.empty,
+    reused: Boolean(existingDoc),
   });
 }

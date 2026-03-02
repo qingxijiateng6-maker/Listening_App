@@ -2,12 +2,12 @@ import {
   GoogleAuthProvider,
   getAuth,
   getRedirectResult,
-  linkWithPopup,
   linkWithRedirect,
   onAuthStateChanged,
   signInWithRedirect,
   signInWithPopup,
   signInAnonymously,
+  signOut,
   type AuthError,
   type Unsubscribe,
   type User,
@@ -20,14 +20,12 @@ type FirebaseAuthDebugError = Error & {
 
 let firebaseAuthError: FirebaseAuthDebugError | null = null;
 const GOOGLE_AUTH_REDIRECT_METHOD_KEY = "listening-app-google-auth-redirect-method";
-const GOOGLE_LINK_FALLBACK_ERROR_CODES = new Set([
-  "auth/credential-already-in-use",
-  "auth/provider-already-linked",
-]);
+const GOOGLE_POPUP_TIMEOUT_MS = 8000;
 const GOOGLE_REDIRECT_FALLBACK_ERROR_CODES = new Set([
   "auth/popup-blocked",
   "auth/cancelled-popup-request",
   "auth/operation-not-supported-in-this-environment",
+  "auth/popup-timeout",
 ]);
 
 export type GoogleSignInResult = {
@@ -81,6 +79,33 @@ function toFirebaseAuthError(error: unknown): FirebaseAuthDebugError {
   }
 
   return new Error("認証を初期化できません。") as FirebaseAuthDebugError;
+}
+
+function createPopupTimeoutError(): AuthError {
+  return {
+    name: "FirebaseAuthError",
+    message: "Googleログインのポップアップ応答がタイムアウトしました。",
+    code: "auth/popup-timeout",
+  } as AuthError;
+}
+
+async function withGooglePopupTimeout<T>(operation: Promise<T>): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(createPopupTimeoutError());
+        }, GOOGLE_POPUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function persistRedirectMethod(method: "linked" | "signed_in"): void {
@@ -237,6 +262,51 @@ export function subscribeAuthState(callback: (user: User | null) => void): Unsub
   }
 }
 
+export async function signOutToAnonymous(): Promise<User | null> {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw getFirebaseAuthError() ?? new Error("認証を初期化できません。");
+  }
+
+  try {
+    await signOut(auth);
+    setFirebaseAuthError(null);
+  } catch (error) {
+    const authError = toFirebaseAuthError(error);
+    setFirebaseAuthError(authError);
+    throw authError;
+  }
+
+  const anonymousUser = await signInAnonymouslyIfNeeded();
+  if (!anonymousUser) {
+    throw getFirebaseAuthError() ?? new Error("匿名ユーザーの再初期化に失敗しました。");
+  }
+
+  return anonymousUser;
+}
+
+export async function ensureAnonymousSession(): Promise<User | null> {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw getFirebaseAuthError() ?? new Error("認証を初期化できません。");
+  }
+
+  if (auth.currentUser?.isAnonymous) {
+    return auth.currentUser;
+  }
+
+  if (auth.currentUser) {
+    return signOutToAnonymous();
+  }
+
+  const anonymousUser = await signInAnonymouslyIfNeeded();
+  if (!anonymousUser) {
+    throw getFirebaseAuthError() ?? new Error("匿名ユーザーの再初期化に失敗しました。");
+  }
+
+  return anonymousUser;
+}
+
 export async function completeGoogleRedirectSignIn(): Promise<GoogleSignInResult | null> {
   const auth = getFirebaseAuth();
   if (!auth) {
@@ -271,48 +341,12 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
 
-  if (auth.currentUser?.isAnonymous) {
-    try {
-      const credential = await linkWithPopup(auth.currentUser, provider);
-      setFirebaseAuthError(null);
-      return {
-        user: credential.user,
-        method: "linked",
-      };
-    } catch (error) {
-      const authError = error as AuthError;
-      if (GOOGLE_LINK_FALLBACK_ERROR_CODES.has(authError.code)) {
-        try {
-          const credential = await signInWithPopup(auth, provider);
-          setFirebaseAuthError(null);
-          return {
-            user: credential.user,
-            method: "signed_in",
-          };
-        } catch (signInError) {
-          const signInAuthError = signInError as AuthError;
-          if (GOOGLE_REDIRECT_FALLBACK_ERROR_CODES.has(signInAuthError.code)) {
-            return fallbackToGoogleRedirect(null, provider, "signed_in");
-          }
-
-          const nextError = toFirebaseAuthError(signInError);
-          setFirebaseAuthError(nextError);
-          throw nextError;
-        }
-      }
-
-      if (GOOGLE_REDIRECT_FALLBACK_ERROR_CODES.has(authError.code)) {
-        return fallbackToGoogleRedirect(auth.currentUser, provider, "linked");
-      }
-
-      const nextError = toFirebaseAuthError(error);
-      setFirebaseAuthError(nextError);
-      throw nextError;
-    }
-  }
-
   try {
-    const credential = await signInWithPopup(auth, provider);
+    if (auth.currentUser?.isAnonymous) {
+      await signOut(auth);
+    }
+
+    const credential = await withGooglePopupTimeout(signInWithPopup(auth, provider));
     setFirebaseAuthError(null);
     return {
       user: credential.user,

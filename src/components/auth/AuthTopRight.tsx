@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 import {
   completeGoogleRedirectSignIn,
+  ensureAnonymousSession,
   getFirebaseAuthErrorCode,
   getFirebaseAuthErrorMessage,
   signInAnonymouslyIfNeeded,
+  signOutToAnonymous,
   signInWithGoogle,
   subscribeAuthState,
 } from "@/lib/firebase/auth";
@@ -34,6 +36,11 @@ export function AuthTopRight() {
       }
       return "";
     });
+  }
+
+  async function restoreAnonymousDashboard(): Promise<void> {
+    const anonymousUser = await ensureAnonymousSession();
+    applyUserState(anonymousUser, "匿名ゲストとして利用中です。");
   }
 
   useEffect(() => {
@@ -74,7 +81,8 @@ export function AuthTopRight() {
           return nextCode !== "unknown" ? nextCode : currentCode;
         });
       } catch (redirectError) {
-        setError(redirectError instanceof Error ? redirectError.message : "Googleログインに失敗しました。");
+        await restoreAnonymousDashboard();
+        setError("ログインに失敗しました。");
         setErrorCode(getFirebaseAuthErrorCode());
       }
     })();
@@ -102,7 +110,23 @@ export function AuthTopRight() {
           : "",
       );
     } catch (signInError) {
-      setError(signInError instanceof Error ? signInError.message : "Googleログインに失敗しました。");
+      await restoreAnonymousDashboard();
+      setError("ログインに失敗しました。");
+      setErrorCode(getFirebaseAuthErrorCode());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSignOut(): Promise<void> {
+    setError("");
+    setErrorCode("");
+    setLoading(true);
+    try {
+      const anonymousUser = await signOutToAnonymous();
+      applyUserState(anonymousUser, "Googleアカウントからログアウトしました。");
+    } catch (signOutError) {
+      setError(signOutError instanceof Error ? signOutError.message : "ログアウトに失敗しました。");
       setErrorCode(getFirebaseAuthErrorCode());
     } finally {
       setLoading(false);
@@ -120,7 +144,12 @@ export function AuthTopRight() {
           {loading ? "Googleログイン中..." : "Googleでログイン"}
         </button>
       ) : (
-        <div className="googleLoginDone">Googleログイン済み{email ? `: ${email}` : ""}</div>
+        <>
+          <div className="googleLoginDone">Googleログイン済み{email ? `: ${email}` : ""}</div>
+          <button type="button" className="secondaryActionButton" onClick={() => void handleSignOut()} disabled={loading}>
+            {loading ? "ログアウト中..." : "ログアウト"}
+          </button>
+        </>
       )}
       {error ? <div className="authError" role="alert">{error}</div> : null}
       {error ? <div className="authError">debug code: {errorCode || "unknown"}</div> : null}

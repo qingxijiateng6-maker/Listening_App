@@ -75,6 +75,7 @@ export function SavedExpressionsList() {
           materials.map(async (material) => {
             const expressionsResponse = await fetch(`/api/materials/${material.materialId}/expressions`, {
               method: "GET",
+              headers: authHeaders,
             });
             const expressionsPayload = (await expressionsResponse.json()) as ExpressionsApiResponse;
 

@@ -5,15 +5,20 @@ import { resolveRequestUser } from "@/lib/server/requestUser";
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ materialId: string }> },
 ) {
+  const user = await resolveRequestUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { materialId } = await params;
   if (!materialId) {
     return NextResponse.json({ error: "materialId is required" }, { status: 400 });
   }
 
-  const material = await getMaterial(materialId);
+  const material = await getMaterial(user.uid, materialId);
   if (!material) {
     return NextResponse.json({ error: "Material not found" }, { status: 404 });
   }
@@ -38,7 +43,7 @@ export async function DELETE(
     return NextResponse.json({ error: "materialId is required" }, { status: 400 });
   }
 
-  const deleted = await deleteMaterial(materialId);
+  const deleted = await deleteMaterial(user.uid, materialId);
   if (deleted === null) {
     return NextResponse.json({ error: "Material not found" }, { status: 404 });
   }

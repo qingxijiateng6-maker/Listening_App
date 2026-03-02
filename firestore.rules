@@ -3,11 +3,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /materials/{materialId} {
-      allow read: if true;
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
       allow write: if false;
 
       match /segments/{segmentId} {
-        allow read: if true;
+        allow read: if request.auth != null && get(/databases/$(database)/documents/materials/$(materialId)).data.ownerUid == request.auth.uid;
         allow write: if false;
       }
 

@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthMock = vi.fn();
 const getRedirectResultMock = vi.fn();
-const linkWithPopupMock = vi.fn();
 const linkWithRedirectMock = vi.fn();
-const signInWithPopupMock = vi.fn();
 const signInWithRedirectMock = vi.fn();
+const signInWithPopupMock = vi.fn();
 const signInAnonymouslyMock = vi.fn();
+const signOutMock = vi.fn();
 const onAuthStateChangedMock = vi.fn();
 const googleAuthProviderSetCustomParametersMock = vi.fn();
 const tryGetFirebaseAppMock = vi.fn();
@@ -20,12 +20,12 @@ vi.mock("firebase/auth", () => ({
   },
   getAuth: (...args: Parameters<typeof getAuthMock>) => getAuthMock(...args),
   getRedirectResult: (...args: Parameters<typeof getRedirectResultMock>) => getRedirectResultMock(...args),
-  linkWithPopup: (...args: Parameters<typeof linkWithPopupMock>) => linkWithPopupMock(...args),
   linkWithRedirect: (...args: Parameters<typeof linkWithRedirectMock>) => linkWithRedirectMock(...args),
   onAuthStateChanged: (...args: Parameters<typeof onAuthStateChangedMock>) => onAuthStateChangedMock(...args),
   signInWithRedirect: (...args: Parameters<typeof signInWithRedirectMock>) => signInWithRedirectMock(...args),
   signInWithPopup: (...args: Parameters<typeof signInWithPopupMock>) => signInWithPopupMock(...args),
   signInAnonymously: (...args: Parameters<typeof signInAnonymouslyMock>) => signInAnonymouslyMock(...args),
+  signOut: (...args: Parameters<typeof signOutMock>) => signOutMock(...args),
 }));
 
 vi.mock("@/lib/firebase/client", () => ({
@@ -36,22 +36,25 @@ vi.mock("@/lib/firebase/client", () => ({
 import {
   buildAuthenticatedRequestHeaders,
   completeGoogleRedirectSignIn,
+  ensureAnonymousSession,
   getFirebaseAuthErrorCode,
   getFirebaseAuthErrorMessage,
   signInAnonymouslyIfNeeded,
+  signOutToAnonymous,
   signInWithGoogle,
   subscribeAuthState,
 } from "@/lib/firebase/auth";
 
 describe("firebase auth helpers", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     getAuthMock.mockReset();
     getRedirectResultMock.mockReset();
-    linkWithPopupMock.mockReset();
     linkWithRedirectMock.mockReset();
-    signInWithPopupMock.mockReset();
     signInWithRedirectMock.mockReset();
+    signInWithPopupMock.mockReset();
     signInAnonymouslyMock.mockReset();
+    signOutMock.mockReset();
     onAuthStateChangedMock.mockReset();
     googleAuthProviderSetCustomParametersMock.mockReset();
     tryGetFirebaseAppMock.mockReset();
@@ -70,6 +73,7 @@ describe("firebase auth helpers", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -96,63 +100,105 @@ describe("firebase auth helpers", () => {
     });
   });
 
-  it("links anonymous users with google first", async () => {
-    const auth = {
-      currentUser: { uid: "anon-uid", isAnonymous: true },
+  it("signs out and restores an anonymous user", async () => {
+    const auth: { currentUser: { uid: string; isAnonymous: boolean } | null } = {
+      currentUser: { uid: "google-uid", isAnonymous: false },
     };
-    const linkedUser = { uid: "google-uid", isAnonymous: false, email: "user@example.com" };
+    const anonymousUser = { uid: "anon-uid", isAnonymous: true };
     getAuthMock.mockReturnValue(auth);
-    linkWithPopupMock.mockResolvedValue({ user: linkedUser });
-
-    await expect(signInWithGoogle()).resolves.toEqual({
-      user: linkedUser,
-      method: "linked",
+    signOutMock.mockImplementation(async () => {
+      auth.currentUser = null;
     });
-    expect(linkWithPopupMock).toHaveBeenCalledOnce();
-    expect(signInWithPopupMock).not.toHaveBeenCalled();
+    signInAnonymouslyMock.mockResolvedValue({ user: anonymousUser });
+
+    await expect(signOutToAnonymous()).resolves.toBe(anonymousUser);
+    expect(signOutMock).toHaveBeenCalledWith(auth);
+    expect(signInAnonymouslyMock).toHaveBeenCalledWith(auth);
   });
 
-  it("falls back to popup sign-in when anonymous linking cannot be completed", async () => {
+  it("restores an existing anonymous session without signing out", async () => {
+    const anonymousUser = { uid: "anon-uid", isAnonymous: true };
+    getAuthMock.mockReturnValue({ currentUser: anonymousUser });
+
+    await expect(ensureAnonymousSession()).resolves.toBe(anonymousUser);
+    expect(signOutMock).not.toHaveBeenCalled();
+    expect(signInAnonymouslyMock).not.toHaveBeenCalled();
+  });
+
+  it("restores an anonymous session when no current user exists", async () => {
+    const anonymousUser = { uid: "anon-uid", isAnonymous: true };
+    getAuthMock.mockReturnValue({ currentUser: null });
+    signInAnonymouslyMock.mockResolvedValue({ user: anonymousUser });
+
+    await expect(ensureAnonymousSession()).resolves.toBe(anonymousUser);
+    expect(signOutMock).not.toHaveBeenCalled();
+    expect(signInAnonymouslyMock).toHaveBeenCalled();
+  });
+
+  it("signs out anonymous users before starting popup sign-in", async () => {
     const auth = {
       currentUser: { uid: "anon-uid", isAnonymous: true },
     };
-    const signedInUser = { uid: "google-uid", isAnonymous: false, email: "user@example.com" };
+    const googleUser = { uid: "google-uid", isAnonymous: false, email: "user@example.com" };
     getAuthMock.mockReturnValue(auth);
-    linkWithPopupMock.mockRejectedValue({ code: "auth/credential-already-in-use", message: "credential in use" });
-    signInWithPopupMock.mockResolvedValue({ user: signedInUser });
+    signOutMock.mockImplementation(async () => {
+      auth.currentUser = null;
+    });
+    signInWithPopupMock.mockResolvedValue({ user: googleUser });
 
     await expect(signInWithGoogle()).resolves.toEqual({
-      user: signedInUser,
+      user: googleUser,
       method: "signed_in",
     });
-    expect(linkWithPopupMock).toHaveBeenCalledOnce();
+    expect(signOutMock).toHaveBeenCalledWith(auth);
+    expect(signInWithPopupMock).toHaveBeenCalledOnce();
+    expect(linkWithRedirectMock).not.toHaveBeenCalled();
+  });
+
+  it("starts popup sign-in for signed-out users", async () => {
+    const auth = {
+      currentUser: null,
+    };
+    const googleUser = { uid: "google-uid", isAnonymous: false, email: "user@example.com" };
+    getAuthMock.mockReturnValue(auth);
+    signInWithPopupMock.mockResolvedValue({ user: googleUser });
+
+    await expect(signInWithGoogle()).resolves.toEqual({
+      user: googleUser,
+      method: "signed_in",
+    });
+    expect(signInWithPopupMock).toHaveBeenCalledOnce();
+    expect(linkWithRedirectMock).not.toHaveBeenCalled();
+  });
+
+  it("returns friendly popup sign-in errors", async () => {
+    const auth = {
+      currentUser: null,
+    };
+    getAuthMock.mockReturnValue(auth);
+    signInWithPopupMock.mockRejectedValue({
+      code: "auth/network-request-failed",
+      message: "network failed",
+    });
+
+    await expect(signInWithGoogle()).rejects.toThrow("ネットワークエラーのためGoogleログインに失敗しました。");
+    expect(getFirebaseAuthErrorMessage()).toBe("ネットワークエラーのためGoogleログインに失敗しました。");
+    expect(getFirebaseAuthErrorCode()).toBe("auth/network-request-failed");
     expect(signInWithPopupMock).toHaveBeenCalledOnce();
   });
 
-  it("returns friendly popup errors", async () => {
-    getAuthMock.mockReturnValue({
-      currentUser: null,
-    });
-    signInWithPopupMock.mockRejectedValue({
-      code: "auth/popup-closed-by-user",
-      message: "popup closed",
-    });
-
-    await expect(signInWithGoogle()).rejects.toThrow("Googleログインがキャンセルされました。");
-    expect(getFirebaseAuthErrorMessage()).toBe("Googleログインがキャンセルされました。");
-    expect(getFirebaseAuthErrorCode()).toBe("auth/popup-closed-by-user");
-  });
-
   it("falls back to redirect when popup sign-in is blocked", async () => {
-    getAuthMock.mockReturnValue({
+    const auth = {
       currentUser: null,
-    });
+    };
+    getAuthMock.mockReturnValue(auth);
     signInWithPopupMock.mockRejectedValue({
       code: "auth/popup-blocked",
       message: "popup blocked",
     });
 
-    await expect(signInWithGoogle()).resolves.toMatchObject({
+    await expect(signInWithGoogle()).resolves.toEqual({
+      user: null,
       method: "redirect",
     });
     expect(signInWithRedirectMock).toHaveBeenCalledOnce();

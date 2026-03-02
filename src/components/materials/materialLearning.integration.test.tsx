@@ -7,6 +7,7 @@ const fetchMock = vi.fn();
 const seekToMsMock = vi.fn();
 const playMock = vi.fn();
 const scrollIntoViewMock = vi.fn();
+const buildAuthenticatedRequestHeadersMock = vi.fn();
 
 vi.mock("@/components/materials/YouTubeIFramePlayer", () => ({
   YouTubeIFramePlayer: ({
@@ -30,19 +31,32 @@ vi.mock("@/components/materials/YouTubeIFramePlayer", () => ({
   },
 }));
 
+vi.mock("@/lib/firebase/auth", () => ({
+  buildAuthenticatedRequestHeaders: () => buildAuthenticatedRequestHeadersMock(),
+}));
+
 describe("Learning screen integration", () => {
   beforeEach(() => {
     fetchMock.mockReset();
     seekToMsMock.mockReset();
     playMock.mockReset();
     scrollIntoViewMock.mockReset();
+    buildAuthenticatedRequestHeadersMock.mockReset();
+    buildAuthenticatedRequestHeadersMock.mockResolvedValue({
+      "x-user-id": "u1",
+      authorization: "Bearer token-1",
+    });
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(scrollIntoViewMock);
   });
 
   it("shows ready material with video and subtitles", async () => {
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      expect(init?.headers).toEqual({
+        "x-user-id": "u1",
+        authorization: "Bearer token-1",
+      });
 
       if (url.endsWith("/api/materials/mat1")) {
         return {
@@ -89,8 +103,12 @@ describe("Learning screen integration", () => {
   });
 
   it("shows empty states when subtitles are unavailable", async () => {
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      expect(init?.headers).toEqual({
+        "x-user-id": "u1",
+        authorization: "Bearer token-1",
+      });
 
       if (url.endsWith("/api/materials/mat1")) {
         return {
@@ -137,8 +155,12 @@ describe("Learning screen integration", () => {
   });
 
   it("keeps subtitle selection in sync with the playback controls", async () => {
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      expect(init?.headers).toEqual({
+        "x-user-id": "u1",
+        authorization: "Bearer token-1",
+      });
 
       if (url.endsWith("/api/materials/mat1")) {
         return {
@@ -194,8 +216,12 @@ describe("Learning screen integration", () => {
   });
 
   it("does not force-scroll the page when playback advances", async () => {
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      expect(init?.headers).toEqual({
+        "x-user-id": "u1",
+        authorization: "Bearer token-1",
+      });
 
       if (url.endsWith("/api/materials/mat1")) {
         return {
@@ -257,6 +283,10 @@ describe("Learning screen integration", () => {
       const url = String(input);
 
       if (!init?.method || init.method === "GET") {
+        expect(init?.headers).toEqual({
+          "x-user-id": "u1",
+          authorization: "Bearer token-1",
+        });
         if (url.endsWith("/api/materials/mat1")) {
           return {
             ok: true,
@@ -302,6 +332,11 @@ describe("Learning screen integration", () => {
       }
 
       if (url.endsWith("/api/materials/mat1/expressions") && init?.method === "POST") {
+        expect(init.headers).toEqual({
+          "Content-Type": "application/json",
+          "x-user-id": "u1",
+          authorization: "Bearer token-1",
+        });
         return {
           ok: true,
           json: async () => ({
@@ -316,6 +351,10 @@ describe("Learning screen integration", () => {
       }
 
       if (url.endsWith("/api/materials/mat1/expressions/exp-1") && init?.method === "DELETE") {
+        expect(init.headers).toEqual({
+          "x-user-id": "u1",
+          authorization: "Bearer token-1",
+        });
         return {
           ok: true,
           status: 204,
@@ -368,6 +407,10 @@ describe("Learning screen integration", () => {
       const url = String(input);
 
       if (!init?.method || init.method === "GET") {
+        expect(init?.headers).toEqual({
+          "x-user-id": "u1",
+          authorization: "Bearer token-1",
+        });
         if (url.endsWith("/api/materials/mat1")) {
           return {
             ok: true,
@@ -410,6 +453,10 @@ describe("Learning screen integration", () => {
       }
 
       if (url.endsWith("/api/materials/mat1/expressions/exp-bad") && init?.method === "DELETE") {
+        expect(init.headers).toEqual({
+          "x-user-id": "u1",
+          authorization: "Bearer token-1",
+        });
         return {
           ok: true,
           status: 204,
@@ -428,7 +475,13 @@ describe("Learning screen integration", () => {
     });
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/materials/mat1/expressions/exp-bad", { method: "DELETE" });
+      expect(fetchMock).toHaveBeenCalledWith("/api/materials/mat1/expressions/exp-bad", {
+        method: "DELETE",
+        headers: {
+          "x-user-id": "u1",
+          authorization: "Bearer token-1",
+        },
+      });
     });
   });
 });

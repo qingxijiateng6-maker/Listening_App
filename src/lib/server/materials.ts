@@ -13,13 +13,27 @@ export type SavedExpressionRecord = SavedExpression & {
   expressionId: string;
 };
 
-async function getMaterialSnapshot(materialId: string) {
-  return getAdminDb().collection("materials").doc(materialId).get();
+type StoredMaterialRecord = Material & {
+  ownerUid: string;
+};
+
+async function getOwnedMaterialSnapshot(ownerUid: string, materialId: string) {
+  const snapshot = await getAdminDb().collection("materials").doc(materialId).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  const material = snapshot.data() as Partial<StoredMaterialRecord>;
+  if (material.ownerUid !== ownerUid) {
+    return null;
+  }
+
+  return snapshot;
 }
 
-export async function getMaterial(materialId: string): Promise<MaterialRecord | null> {
-  const snapshot = await getMaterialSnapshot(materialId);
-  if (!snapshot.exists) {
+export async function getMaterial(ownerUid: string, materialId: string): Promise<MaterialRecord | null> {
+  const snapshot = await getOwnedMaterialSnapshot(ownerUid, materialId);
+  if (!snapshot) {
     return null;
   }
 
@@ -29,9 +43,9 @@ export async function getMaterial(materialId: string): Promise<MaterialRecord | 
   };
 }
 
-export async function listMaterialSegments(materialId: string): Promise<SegmentRecord[] | null> {
-  const materialSnapshot = await getMaterialSnapshot(materialId);
-  if (!materialSnapshot.exists) {
+export async function listMaterialSegments(ownerUid: string, materialId: string): Promise<SegmentRecord[] | null> {
+  const materialSnapshot = await getOwnedMaterialSnapshot(ownerUid, materialId);
+  if (!materialSnapshot) {
     return null;
   }
 
@@ -47,9 +61,9 @@ export async function listMaterialSegments(materialId: string): Promise<SegmentR
     );
 }
 
-export async function listMaterialExpressions(materialId: string): Promise<SavedExpressionRecord[] | null> {
-  const materialSnapshot = await getMaterialSnapshot(materialId);
-  if (!materialSnapshot.exists) {
+export async function listMaterialExpressions(ownerUid: string, materialId: string): Promise<SavedExpressionRecord[] | null> {
+  const materialSnapshot = await getOwnedMaterialSnapshot(ownerUid, materialId);
+  if (!materialSnapshot) {
     return null;
   }
 
@@ -69,11 +83,12 @@ export async function listMaterialExpressions(materialId: string): Promise<Saved
 }
 
 export async function createMaterialExpression(
+  ownerUid: string,
   materialId: string,
   expression: Omit<SavedExpression, "createdAt" | "updatedAt">,
 ): Promise<SavedExpressionRecord | null> {
-  const materialSnapshot = await getMaterialSnapshot(materialId);
-  if (!materialSnapshot.exists) {
+  const materialSnapshot = await getOwnedMaterialSnapshot(ownerUid, materialId);
+  if (!materialSnapshot) {
     return null;
   }
 
@@ -92,9 +107,13 @@ export async function createMaterialExpression(
   };
 }
 
-export async function deleteMaterialExpression(materialId: string, expressionId: string): Promise<boolean | null> {
-  const materialSnapshot = await getMaterialSnapshot(materialId);
-  if (!materialSnapshot.exists) {
+export async function deleteMaterialExpression(
+  ownerUid: string,
+  materialId: string,
+  expressionId: string,
+): Promise<boolean | null> {
+  const materialSnapshot = await getOwnedMaterialSnapshot(ownerUid, materialId);
+  if (!materialSnapshot) {
     return null;
   }
 
@@ -108,9 +127,9 @@ export async function deleteMaterialExpression(materialId: string, expressionId:
   return true;
 }
 
-export async function deleteMaterial(materialId: string): Promise<boolean | null> {
-  const materialSnapshot = await getMaterialSnapshot(materialId);
-  if (!materialSnapshot.exists) {
+export async function deleteMaterial(ownerUid: string, materialId: string): Promise<boolean | null> {
+  const materialSnapshot = await getOwnedMaterialSnapshot(ownerUid, materialId);
+  if (!materialSnapshot) {
     return null;
   }
 

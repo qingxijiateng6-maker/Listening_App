@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createMaterialExpression, listMaterialExpressions } from "@/lib/server/materials";
+import { resolveRequestUser } from "@/lib/server/requestUser";
 
 export const runtime = "nodejs";
 
@@ -22,15 +23,20 @@ function normalizeExpressionPayload(payload: ExpressionPayload) {
 }
 
 export async function GET(
-  _request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ materialId: string }> },
 ) {
+  const user = await resolveRequestUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { materialId } = await params;
   if (!materialId) {
     return NextResponse.json({ error: "materialId is required" }, { status: 400 });
   }
 
-  const expressions = await listMaterialExpressions(materialId);
+  const expressions = await listMaterialExpressions(user.uid, materialId);
   if (!expressions) {
     return NextResponse.json({ error: "Material not found" }, { status: 404 });
   }
@@ -39,9 +45,14 @@ export async function GET(
 }
 
 export async function POST(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ materialId: string }> },
 ) {
+  const user = await resolveRequestUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { materialId } = await params;
   if (!materialId) {
     return NextResponse.json({ error: "materialId is required" }, { status: 400 });
@@ -62,7 +73,7 @@ export async function POST(
     );
   }
 
-  const expression = await createMaterialExpression(materialId, normalized);
+  const expression = await createMaterialExpression(user.uid, materialId, normalized);
   if (!expression) {
     return NextResponse.json({ error: "Material not found" }, { status: 404 });
   }

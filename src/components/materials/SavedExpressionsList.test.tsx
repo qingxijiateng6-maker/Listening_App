@@ -70,6 +70,10 @@ describe("SavedExpressionsList", () => {
       }
 
       if (url.endsWith("/api/materials/mat-1/expressions")) {
+        expect(init?.headers).toEqual({
+          "x-user-id": "u1",
+          authorization: "Bearer token-1",
+        });
         return {
           ok: true,
           json: async () => ({
@@ -86,6 +90,10 @@ describe("SavedExpressionsList", () => {
       }
 
       if (url.endsWith("/api/materials/mat-2/expressions")) {
+        expect(init?.headers).toEqual({
+          "x-user-id": "u1",
+          authorization: "Bearer token-1",
+        });
         return {
           ok: true,
           json: async () => ({
