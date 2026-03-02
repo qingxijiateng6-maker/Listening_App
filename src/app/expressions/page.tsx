@@ -2,7 +2,7 @@ import { SavedExpressionsList } from "@/components/materials/SavedExpressionsLis
 
 export default function ExpressionsPage() {
   return (
-    <main>
+    <main className="expressionsPage">
       <SavedExpressionsList />
     </main>
   );

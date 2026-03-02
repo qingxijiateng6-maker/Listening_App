@@ -20,6 +20,21 @@ main {
   padding: 2rem 1rem;
 }
 
+.expressionsPage {
+  position: relative;
+  max-width: 1120px;
+  min-height: 100vh;
+  isolation: isolate;
+}
+
+.expressionsPage::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, #d4f1c5 0%, #e8f5e8 20%, #f0f8e8 40%, #fff9e6 60%, #ffe5b4 80%, #ffdab9 100%);
+}
+
 .materialsPage {
   position: relative;
   min-height: 100vh;
@@ -524,6 +539,91 @@ input[disabled] {
   gap: 0.85rem;
 }
 
+.savedExpressionsShell {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.savedExpressionsHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+  gap: 1rem;
+  padding: 1.4rem;
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(23, 33, 47, 0.95) 0%, rgba(54, 41, 33, 0.88) 100%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0));
+  color: #fff8f2;
+  box-shadow: 0 24px 60px rgba(96, 57, 24, 0.18);
+}
+
+.savedExpressionsHeroCopy h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.savedExpressionsHeroCopy p:last-child {
+  margin: 0.85rem 0 0;
+  max-width: 42rem;
+  color: rgba(255, 248, 242, 0.82);
+  line-height: 1.7;
+}
+
+.savedExpressionsHeroStats {
+  display: grid;
+  gap: 0.8rem;
+  align-content: end;
+}
+
+.savedExpressionsStatCard {
+  display: grid;
+  gap: 0.2rem;
+  padding: 1rem 1.05rem;
+  border-radius: 18px;
+  background: rgba(255, 248, 242, 0.08);
+  border: 1px solid rgba(255, 248, 242, 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.savedExpressionsStatCard strong {
+  font-size: clamp(1.2rem, 2vw, 1.8rem);
+  line-height: 1.2;
+}
+
+.savedExpressionsStatLabel,
+.savedExpressionsOverviewLabel,
+.savedExpressionGroupCount {
+  font-size: 0.77rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.savedExpressionsOverview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.savedExpressionsOverviewCard {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem 1.05rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 14px 30px rgba(95, 125, 85, 0.1);
+  backdrop-filter: blur(16px);
+}
+
+.savedExpressionsOverviewCard p {
+  margin: 0;
+  color: #5e4c3d;
+  line-height: 1.6;
+}
+
 .savedExpressionGroups,
 .savedExpressionGroupList {
   display: grid;
@@ -534,10 +634,12 @@ input[disabled] {
 .savedExpressionGroupItem {
   display: grid;
   gap: 0.8rem;
-  padding: 1rem;
-  border-radius: 14px;
-  border: 1px solid #d9e0ea;
-  background: #ffffff;
+  padding: 1.1rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 18px 36px rgba(110, 136, 94, 0.12);
+  backdrop-filter: blur(18px);
 }
 
 .savedExpressionGroupHeader {
@@ -549,12 +651,13 @@ input[disabled] {
 }
 
 .savedExpressionGroupHeader h2 {
-  margin: 0;
+  margin: 0.15rem 0 0;
+  font-size: clamp(1.3rem, 2.4vw, 1.8rem);
 }
 
 .savedExpressionGroupHeader p {
   margin: 0.35rem 0 0;
-  color: #58677b;
+  color: #5f6451;
 }
 
 .savedExpressionGroupLink {
@@ -562,6 +665,7 @@ input[disabled] {
   align-items: center;
   justify-content: center;
   text-decoration: none;
+  min-width: 150px;
 }
 
 .savedExpressionCard {
@@ -599,14 +703,34 @@ input[disabled] {
 .savedExpressionDetails dt,
 .savedExpressionScenesTitle {
   font-weight: 800;
-  color: #1d3552;
+  color: #4d5d3f;
 }
 
 .savedExpressionDetails dd,
 .savedExpressionSceneEmpty {
   margin: 0;
-  color: #43556c;
+  color: #465043;
   line-height: 1.55;
+}
+
+.savedExpressionsEmptyCard {
+  justify-items: start;
+  gap: 0.8rem;
+  padding: 1.25rem;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  box-shadow: 0 18px 36px rgba(110, 136, 94, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.savedExpressionsStartLink {
+  text-decoration: none;
+}
+
+.savedExpressionsBackLink a {
+  color: #7a3e12;
+  font-weight: 700;
 }
 
 .savedExpressionSceneButton {
@@ -790,6 +914,15 @@ input[disabled] {
 
   .savedExpressionDeleteButton {
     width: 100%;
+  }
+
+  .expressionsPage {
+    padding-top: 1rem;
+  }
+
+  .savedExpressionsHero,
+  .savedExpressionsOverview {
+    grid-template-columns: 1fr;
   }
 
   .authTopRight {

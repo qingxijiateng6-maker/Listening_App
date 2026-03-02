@@ -51,6 +51,7 @@ export function SavedExpressionsList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const totalExpressions = groups.reduce((sum, group) => sum + group.expressions.length, 0);
   useEffect(() => {
     let mounted = true;
 
@@ -122,34 +123,56 @@ export function SavedExpressionsList() {
 
   if (loading) {
     return (
-      <section className="historyListSection">
-        <h1>保存した表現</h1>
-        <p>一覧を読み込んでいます...</p>
+      <section className="savedExpressionsShell">
+        <div className="savedExpressionsHero">
+        <div className="savedExpressionsHeroCopy">
+          <h1>保存した表現</h1>
+          <p>一覧を読み込んでいます...</p>
+        </div>
+        </div>
       </section>
     );
   }
 
   if (error) {
     return (
-      <section className="historyListSection">
-        <h1>保存した表現</h1>
-        <p className="videoRegistrationMessage">{error}</p>
+      <section className="savedExpressionsShell">
+        <div className="savedExpressionsHero">
+        <div className="savedExpressionsHeroCopy">
+          <h1>保存した表現</h1>
+          <p className="videoRegistrationMessage">{error}</p>
+        </div>
+        </div>
       </section>
     );
   }
 
   return (
-    <section className="historyListSection">
-      <div className="historyListHeader">
-        <div>
+    <section className="savedExpressionsShell">
+      <div className="savedExpressionsHero">
+        <div className="savedExpressionsHeroCopy">
           <h1>保存した表現</h1>
-          <p>動画ごとに、これまで保存した表現を確認できます。</p>
+          <p>動画ごとに保存した表現のみを復習できます</p>
+        </div>
+        <div className="savedExpressionsHeroStats" aria-label="保存した表現の概要">
+          <div className="savedExpressionsStatCard">
+            <span className="savedExpressionsStatLabel">保存数</span>
+            <strong>{totalExpressions}</strong>
+          </div>
+          <div className="savedExpressionsStatCard">
+            <span className="savedExpressionsStatLabel">動画数</span>
+            <strong>{groups.length}</strong>
+          </div>
         </div>
       </div>
+
       {groups.length === 0 ? (
-        <div className="historyEmptyCard">
+        <div className="historyEmptyCard savedExpressionsEmptyCard">
           <h2>まだ保存した表現はありません</h2>
           <p>学習画面で表現を保存すると、ここに一覧表示されます。</p>
+          <Link href="/" className="secondaryActionButton savedExpressionsStartLink">
+            トップへ戻る
+          </Link>
         </div>
       ) : (
         <div className="savedExpressionGroups">
@@ -157,6 +180,7 @@ export function SavedExpressionsList() {
             <article key={group.materialId} className="savedExpressionGroupCard">
               <div className="savedExpressionGroupHeader">
                 <div>
+                  <span className="savedExpressionGroupCount">{group.expressions.length} expressions</span>
                   <h2>{group.title}</h2>
                   <p>{group.channel}</p>
                 </div>
@@ -188,7 +212,7 @@ export function SavedExpressionsList() {
           ))}
         </div>
       )}
-      <p className="learningBackLink">
+      <p className="learningBackLink savedExpressionsBackLink">
         <Link href="/">トップへ戻る</Link>
       </p>
     </section>
