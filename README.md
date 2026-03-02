@@ -1,72 +1,149 @@
 # Listening App
 
-YouTube の公開動画 URL を入力すると、動画と字幕で学習できるリスニング教材を生成する Next.js アプリです。
+YouTube の公開動画を教材化し、字幕を見ながら学習した表現を自分で保存していくリスニング学習アプリです。
 
-## 概要
+以前の「表現を自動抽出して、意味や例文も自動生成する」仕様ではなく、現在は学習者が必要な表現を手動で保存する構成になっています。
 
-- フロント/サーバー: Next.js on Vercel
+## 現在の仕様
+
+- YouTube 公開動画 URL を登録すると教材を作成する
+- 動画メタ情報と字幕を取得し、教材として保存する
+- 学習画面で表現・意味・例文を自分で入力して保存する
+- 保存した表現ごとに、その表現を含む字幕シーンを学習画面で参照できる
+- 保存した表現を動画単位で一覧表示できる
+- 登録済み動画の履歴表示と削除ができる
+- Firebase Authentication で匿名利用を開始し、必要に応じて Google ログインへ切り替えられる
+
+## 画面構成
+
+| パス | 内容 |
+| --- | --- |
+| `/` | YouTube URL 登録、履歴画面への導線 |
+| `/materials/loading` | 教材登録中のローディング画面 |
+| `/materials` | 登録済み動画の履歴一覧 |
+| `/materials/[materialId]` | 動画再生、字幕確認、表現の手動保存 |
+| `/expressions` | 保存した表現の一覧 |
+
+## 技術スタック
+
+- フロントエンド: Next.js 15 / React 19 / App Router
 - 認証: Firebase Authentication
-- DB: Firestore
-- 非同期処理: Firestore `jobs` + 即時実行 + Worker API
+- データベース: Firestore
+- サーバー処理: Next.js Route Handlers + `firebase-admin`
+- 非同期処理: Firestore `jobs` コレクション + Worker API
+- テスト: Vitest + Testing Library
 
-## 現状の実装範囲
+## データ構造
 
-### 実装済み
+主要コレクションは次の通りです。
 
-- YouTube 公開動画 URL の登録
-- 同一 `youtubeId + pipelineVersion` の教材再利用
-- 教材メタ情報取得
-- 字幕セグメント取得
-- Firestore `jobs` を使ったジョブ投入、ロック、再試行、stale lock 回収
-- Worker API によるパイプライン実行
-- Firestore Security Rules の雛形管理
+| パス | 用途 |
+| --- | --- |
+| `materials/{materialId}` | 教材メタ情報 |
+| `materials/{materialId}/segments/{segmentId}` | 字幕セグメント |
+| `materials/{materialId}/expressions/{expressionId}` | ユーザーが保存した表現 |
+| `materials/{materialId}/_pipeline/state:{version}` | 教材生成の内部状態 |
+| `jobs/{jobId}` | 教材生成ジョブ |
 
-### MVP として未対応
+`expressions` には少なくとも次の情報を保存します。
 
-- Firebase Admin による ID token 検証
-- 公開教材 / 非公開教材の可視性切り替え
-- 復習機能、SRS、クイズ、進捗ダッシュボード
-- YouTube 以外の動画ソース
-- 管理画面や手動キュレーション
+- `expression`
+- `meaning`
+- `exampleSentence`
+- `createdAt`
+- `updatedAt`
 
-## アーキテクチャ
+## 教材生成フロー
 
-### 主要コレクション
+1. `POST /api/materials` で YouTube URL を登録する
+2. 動画 URL を検証し、同一ユーザー内の重複教材を再利用する
+3. `jobs/{jobId}` に `material_pipeline` ジョブを投入する
+4. `meta` -> `captions` -> `format` の順に処理する
+5. 完了後、`materials` と `segments` に教材データを保存する
 
-| パス | 用途 | クライアント read | クライアント write |
-| --- | --- | --- | --- |
-| `materials/{materialId}` | 教材メタ情報 | 可 | 不可 |
-| `materials/{materialId}/segments/{segmentId}` | 字幕 | 可 | 不可 |
-| `jobs/{jobId}` | 非同期ジョブ | 不可 | 不可 |
-
-### ジョブ実行の流れ
-
-1. `POST /api/materials` が教材を作成または再利用
-2. `jobs/{jobId}` を `queued` で作成
-3. API 内で即時に `runJobToCompletion()` を呼び、可能な範囲まで処理
-4. 必要に応じて外部スケジューラから `dispatch` / `recover-stale` を呼ぶ
-5. `jobs` は Firestore transaction でロックし、指数バックオフで再試行
+字幕生成後の表現保存はパイプラインではなく、学習画面のフォームから明示的に行います。
 
 ## API
 
-| API | 用途 | 認可 |
+### ユーザー向け API
+
+| メソッド | パス | 用途 |
 | --- | --- | --- |
-| `POST /api/materials` | 教材登録、重複判定、ジョブ投入 | 認証必須。現実装は `resolveRequestUser()` により `x-user-id` フォールバックあり |
-| `GET /api/materials/:materialId` | 教材メタ情報取得 | 匿名可 |
-| `GET /api/materials/:materialId/segments` | 字幕取得 | 匿名可 |
-| `POST /api/jobs/dispatch` | ジョブをロックする補助 API | `CRON_SECRET` または `WORKER_SECRET` |
-| `POST /api/worker/jobs/dispatch` | due job をロックして処理 | `CRON_SECRET` または `WORKER_SECRET` |
-| `POST /api/worker/jobs/recover-stale` | stale lock 回収 | `CRON_SECRET` または `WORKER_SECRET` |
-| `GET /api/cron/jobs` | cron 互換入口。ロック後に worker を呼ぶ | `CRON_SECRET` |
-| `POST /api/worker/material-pipeline` | 単一 job 実行 | `WORKER_SECRET` |
+| `GET` | `/api/materials` | 自分の教材一覧を取得 |
+| `POST` | `/api/materials` | YouTube URL から教材を登録 |
+| `GET` | `/api/materials/[materialId]` | 教材詳細を取得 |
+| `DELETE` | `/api/materials/[materialId]` | 教材を削除 |
+| `GET` | `/api/materials/[materialId]/segments` | 字幕一覧を取得 |
+| `GET` | `/api/materials/[materialId]/expressions` | 保存済み表現一覧を取得 |
+| `POST` | `/api/materials/[materialId]/expressions` | 表現を保存 |
+| `DELETE` | `/api/materials/[materialId]/expressions/[expressionId]` | 表現を削除 |
 
-## セキュリティと実装上の注意
+### Worker / 運用 API
 
-- Firestore Rules は [firestore.rules](./firestore.rules) で管理します。
-- 主要な本番アクセスは Next.js API + `firebase-admin` 経由です。
-- そのため Firestore Rules は直接 SDK アクセスの制御には効きますが、API 認可そのものは担保しません。
-- 現在の `resolveRequestUser()` は Firebase ID token をまだ検証せず、`x-user-id` ヘッダーフォールバックを含みます。
-- 本番運用では Firebase Admin による ID token 検証へ置き換える前提です。
+| メソッド | パス | 用途 |
+| --- | --- | --- |
+| `POST` | `/api/jobs/dispatch` | ジョブロック補助 API |
+| `POST` | `/api/worker/jobs/dispatch` | due job をロックして実行 |
+| `POST` | `/api/worker/jobs/recover-stale` | stale lock 回収 |
+| `POST` | `/api/worker/material-pipeline` | 単一ジョブ実行 |
+| `GET` | `/api/cron/jobs` | cron 互換の入口 |
+
+## 認証
+
+- クライアントは Firebase Authentication で匿名ユーザーを自動作成します
+- 必要に応じて Google ログインへ切り替えられます
+- API は Firebase ID token を `Authorization: Bearer <token>` として受け取り、サーバー側で検証します
+- Firestore への主な読み書きはクライアント SDK 直叩きではなく、Next.js API 経由です
+
+## ディレクトリ構成
+
+```text
+.
+|-- docs/
+|   `-- OPERATIONS.md
+|-- src/
+|   |-- app/
+|   |   |-- api/
+|   |   |   |-- cron/
+|   |   |   |-- jobs/
+|   |   |   |-- materials/
+|   |   |   `-- worker/
+|   |   |-- expressions/
+|   |   |-- materials/
+|   |   |-- globals.css
+|   |   |-- layout.tsx
+|   |   `-- page.tsx
+|   |-- components/
+|   |   |-- auth/
+|   |   |-- firebase/
+|   |   `-- materials/
+|   |-- lib/
+|   |   |-- firebase/
+|   |   |-- jobs/
+|   |   |-- server/
+|   |   `-- youtube.ts
+|   |-- pages/
+|   |   `-- _app.tsx
+|   |-- test/
+|   `-- types/
+|-- firestore.rules
+|-- firebase.json
+|-- next.config.ts
+|-- package.json
+|-- vercel.json
+`-- vitest.config.ts
+```
+
+補足:
+
+- `src/components/materials/`
+  学習画面、動画登録、履歴、保存表現一覧など UI の中心
+- `src/lib/jobs/`
+  教材生成パイプラインとジョブ制御
+- `src/lib/server/materials.ts`
+  教材・字幕・保存表現のサーバー側 CRUD
+- `src/lib/server/llm/`
+  現在の主要導線では未使用だが、将来拡張用の LLM 基盤コード
 
 ## セットアップ
 
@@ -76,6 +153,12 @@ YouTube の公開動画 URL を入力すると、動画と字幕で学習でき�
 - Firebase プロジェクト
 - Vercel プロジェクト
 
+### インストール
+
+```bash
+npm install
+```
+
 ### 環境変数
 
 `.env.example` を `.env.local` にコピーして設定します。
@@ -84,7 +167,7 @@ YouTube の公開動画 URL を入力すると、動画と字幕で学習でき�
 cp .env.example .env.local
 ```
 
-#### クライアント SDK
+#### Firebase Client SDK
 
 - `NEXT_PUBLIC_FIREBASE_API_KEY`
 - `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
@@ -93,47 +176,56 @@ cp .env.example .env.local
 - `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
 - `NEXT_PUBLIC_FIREBASE_APP_ID`
 
-#### サーバー SDK
+#### Firebase Admin SDK
 
 - `FIREBASE_PROJECT_ID`
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`
 
-#### 内部 API 認証
+#### Internal API Auth
 
 - `CRON_SECRET`
-  - `GET /api/cron/jobs`
-  - `POST /api/jobs/dispatch`
-  - `POST /api/worker/jobs/dispatch`
-  - `POST /api/worker/jobs/recover-stale`
 - `WORKER_SECRET`
-  - `POST /api/jobs/dispatch`
-  - `POST /api/worker/jobs/dispatch`
-  - `POST /api/worker/jobs/recover-stale`
-  - `POST /api/worker/material-pipeline`
-  - `GET /api/cron/jobs` が内部で worker を呼ぶときにも使用
+
+#### Optional
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `OPENAI_BASE_URL`
+- `OPENAI_TIMEOUT_MS`
+
+現行の主要機能では OpenAI は必須ではありません。
 
 ## ローカル起動
 
 ```bash
-npm install
 npm run dev
 ```
 
-確認項目:
+起動後は `http://localhost:3000` を開き、次を確認します。
 
-- `http://localhost:3000` を開ける
-- 匿名認証が初期化される
-- Firestore 初期化エラーが出ない
+- 匿名ログインが開始される
+- YouTube URL の登録画面が表示される
+- Firebase 初期化エラーが出ない
+
+## 開発コマンド
+
+```bash
+npm run dev
+npm run typecheck
+npm test
+npm run build
+```
 
 ## デプロイ
 
 ### Firebase
 
-1. Authentication で Anonymous を有効化
-2. Firestore を Native モードで作成
-3. Service Account を発行して Vercel に設定
-4. 必要なら Firestore Rules を反映
+1. Authentication で Anonymous を有効化する
+2. 必要なら Google ログインも有効化する
+3. Firestore を Native モードで作成する
+4. Service Account を発行し、Vercel に環境変数を設定する
+5. 必要に応じて Firestore Rules を反映する
 
 ```bash
 firebase deploy --only firestore:rules
@@ -141,49 +233,35 @@ firebase deploy --only firestore:rules
 
 ### Vercel
 
-1. リポジトリを接続
-2. `.env.example` の値を Environment Variables に設定
-3. Preview / Production をデプロイ
+1. リポジトリを接続する
+2. `.env.example` の値を Environment Variables に設定する
+3. Preview / Production をデプロイする
 
 ## 外部スケジューラ
 
-MVP では `POST /api/materials` 実行時にその場でジョブ処理を開始します。常時スケジューラは必須ではありません。
+`POST /api/materials` 内でジョブ実行を開始するため、常時スケジューラは必須ではありません。
 
-使う場合の目的は次の 2 つです。
+ただし次の用途で外部スケジューラを使えます。
 
 - 取りこぼした `queued` job の再処理
 - stale lock の回収
 
-### 推奨構成
+推奨エンドポイント:
 
 - `POST /api/worker/jobs/dispatch`
-  - ヘッダ: `Authorization: Bearer <WORKER_SECRET>` もしくは `Bearer <CRON_SECRET>`
-  - Body: `{"limit": 5}`
-  - 目安: 5 分ごと
 - `POST /api/worker/jobs/recover-stale`
-  - ヘッダ: `Authorization: Bearer <WORKER_SECRET>` もしくは `Bearer <CRON_SECRET>`
-  - Body なし
-  - 目安: 15 分ごと
 
-### `cron-job.org` 例
+## テスト
 
-1. `dispatch` 用ジョブを追加
-2. URL を `https://<your-app>.vercel.app/api/worker/jobs/dispatch` に設定
-3. Method を `POST` に設定
-4. Header に `Authorization: Bearer <WORKER_SECRET>` と `Content-Type: application/json` を設定
-5. Body に `{"limit":5}` を設定
-6. 別ジョブで `recover-stale` を `https://<your-app>.vercel.app/api/worker/jobs/recover-stale` に向ける
+現在のテストは主に以下をカバーしています。
 
-`GET /api/cron/jobs` は cron 互換入口として残っていますが、新規設定では `worker/jobs/*` を直接叩く運用の方が単純です。
+- 動画登録から学習画面遷移までの統合動作
+- 学習画面での表現保存、字幕マッチ表示、削除
+- 保存表現一覧、履歴一覧、認証 UI
+- API route の認可とレスポンス
+- ジョブキューと字幕整形ロジック
 
-## 開発コマンド
+## 補足ドキュメント
 
-```bash
-npm run typecheck
-npm test
-npm run build
-```
+- 運用手順: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 
-## 運用ドキュメント
-
-詳細な監視、障害対応、Rules 反映手順は [docs/OPERATIONS.md](./docs/OPERATIONS.md) を参照してください。
