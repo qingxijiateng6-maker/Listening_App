@@ -10,7 +10,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: #f4f7fb;
+  background: #fffffb;
   color: #1b2430;
 }
 
@@ -23,20 +23,44 @@ main {
 .homePage {
   display: grid;
   gap: 1.25rem;
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+}
+
+.homePage::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(245, 245, 220, 1) 0%,
+      rgba(255, 223, 186, 0.8) 25%,
+      rgba(255, 182, 193, 0.6) 50%,
+      rgba(147, 112, 219, 0.7) 75%,
+      rgba(72, 61, 139, 0.9) 100%
+    ),
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 224, 0.4) 0%, transparent 50%),
+    radial-gradient(circle at 70% 80%, rgba(72, 61, 139, 0.6) 0%, transparent 70%),
+    radial-gradient(circle at 50% 60%, rgba(147, 112, 219, 0.3) 0%, transparent 60%);
+  background-color: #f5f5dc;
 }
 
 .homeHeroSection {
-  background: #ffffff;
-  border: 1px solid #d9e0ea;
+  background: transparent;
+  border: none;
   border-radius: 18px;
   padding: 1.5rem;
-  box-shadow: 0 18px 40px rgba(28, 52, 84, 0.08);
+  box-shadow: none;
 }
 
 .videoRegistrationSection {
   border: none;
   margin: 0;
   padding: 0;
+  background: transparent;
 }
 
 .videoRegistrationLabel {
@@ -59,34 +83,40 @@ main {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
   align-items: stretch;
+  background: transparent;
+  border-color: transparent;
 }
 
 .historyNavigationCard {
   display: grid;
   gap: 0.6rem;
-  align-content: end;
+  grid-template-rows: minmax(3.6rem, auto) 1fr;
+  align-content: start;
   min-height: 180px;
   padding: 1.2rem;
   border-radius: 18px;
   text-decoration: none;
   border: 1px solid #ced8e6;
-  color: #15304b;
-  background: linear-gradient(160deg, #ffffff 0%, #eef4ff 100%);
+  color: #fffdfb;
+  background: linear-gradient(160deg, #00c2b8 0%, #006c8f 100%);
   box-shadow: 0 16px 32px rgba(21, 48, 75, 0.08);
 }
 
 .historyNavigationCard:last-child {
-  background: linear-gradient(160deg, #fffdf7 0%, #fff0d8 100%);
+  background: linear-gradient(160deg, #ff5a7a 0%, #c21d4a 100%);
 }
 
 .historyNavigationTitle {
   font-size: clamp(1.35rem, 3vw, 1.8rem);
   font-weight: 800;
+  line-height: 1.25;
+  align-self: end;
+  color: #fffdfb;
 }
 
 .historyNavigationDescription {
   line-height: 1.6;
-  color: #4a6078;
+  color: rgba(255, 253, 251, 0.92);
 }
 
 .historyListSection {
