@@ -168,6 +168,46 @@ main {
   background: linear-gradient(160deg, #ff5a7a 0%, #c21d4a 100%);
 }
 
+.homeAppDescriptionSection {
+  display: grid;
+  gap: 0.7rem;
+  justify-items: start;
+  padding: 1.1rem 1.2rem;
+  border-radius: 18px;
+  background: rgba(255, 251, 245, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 14px 30px rgba(30, 42, 64, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.homeAppDescriptionLabel {
+  margin: 0;
+  font-size: clamp(1.05rem, 2.4vw, 1.35rem);
+  font-weight: 800;
+  color: #fff8ef;
+  text-shadow: 0 1px 10px rgba(41, 27, 62, 0.18);
+}
+
+.homeAppDescriptionLink {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(122, 91, 157, 0.18);
+  color: #2d4b75;
+  font-weight: 700;
+  line-height: 1.5;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  box-shadow: 0 10px 24px rgba(46, 68, 103, 0.08);
+}
+
+.homeAppDescriptionLink:hover {
+  color: #1f3d67;
+  background: rgba(255, 255, 255, 0.96);
+}
+
 .historyNavigationTitle {
   font-size: clamp(1.35rem, 3vw, 1.8rem);
   font-weight: 800;
