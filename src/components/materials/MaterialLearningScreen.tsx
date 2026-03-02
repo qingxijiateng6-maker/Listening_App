@@ -308,235 +308,238 @@ export function MaterialLearningScreen({ materialId }: Props) {
 
   return (
     <main className="learningScreen">
-      {loading ? (
-        <section className="learningStateCard loading" aria-live="polite">
-          <h2>読み込み中</h2>
-          <p>{loadingLabel}</p>
-        </section>
-      ) : null}
-      {error ? (
-        <section className="learningStateCard error" role="alert">
-          <h2>読み込みエラー</h2>
-          <p>表示に必要なデータを読み込めませんでした。</p>
-          <p>{error}</p>
-        </section>
-      ) : null}
-      {material ? (
-        <div className="learningLayout">
-          <section className="playerTranscriptSection">
-            <div className="playerTranscriptGrid">
-              <div ref={playerSectionRef} className="learningHeroSection playerColumn">
-                <div className="learningSectionHeader">
-                  <div />
-                </div>
-                <YouTubeIFramePlayer
-                  youtubeId={material.youtubeId}
-                  onApiReady={handlePlayerReady}
-                  onTimeChange={handleTimeChange}
-                />
-                <div className="expressionFormPanel">
-                  <div className="learningSectionHeader compact">
-                    <div>
-                      <h3>表現を保存する</h3>
+      <div className="learningScreenGlow" aria-hidden="true" />
+      <div className="learningScreenContent">
+        {loading ? (
+          <section className="learningStateCard loading" aria-live="polite">
+            <h2>読み込み中</h2>
+            <p>{loadingLabel}</p>
+          </section>
+        ) : null}
+        {error ? (
+          <section className="learningStateCard error" role="alert">
+            <h2>読み込みエラー</h2>
+            <p>表示に必要なデータを読み込めませんでした。</p>
+            <p>{error}</p>
+          </section>
+        ) : null}
+        {material ? (
+          <div className="learningLayout">
+            <section className="playerTranscriptSection">
+              <div className="playerTranscriptGrid">
+                <div ref={playerSectionRef} className="learningHeroSection playerColumn">
+                  <div className="learningSectionHeader">
+                    <div />
+                  </div>
+                  <YouTubeIFramePlayer
+                    youtubeId={material.youtubeId}
+                    onApiReady={handlePlayerReady}
+                    onTimeChange={handleTimeChange}
+                  />
+                  <div className="expressionFormPanel">
+                    <div className="learningSectionHeader compact">
+                      <div>
+                        <h3>表現を保存する</h3>
+                      </div>
                     </div>
+                    <form className="expressionForm" onSubmit={handleSaveExpression}>
+                      <label className="expressionFieldLabel" htmlFor="expression-input">
+                        保存する表現
+                      </label>
+                      <input
+                        id="expression-input"
+                        type="text"
+                        value={formExpression}
+                        onChange={(event) => setFormExpression(event.target.value)}
+                        disabled={isSavingExpression}
+                      />
+                      <label className="expressionFieldLabel" htmlFor="meaning-input">
+                        意味
+                      </label>
+                      <input
+                        id="meaning-input"
+                        type="text"
+                        value={formMeaning}
+                        onChange={(event) => setFormMeaning(event.target.value)}
+                        disabled={isSavingExpression}
+                      />
+                      <label className="expressionFieldLabel" htmlFor="example-sentence-input">
+                        例文
+                      </label>
+                      <textarea
+                        id="example-sentence-input"
+                        className="expressionTextarea"
+                        value={formExampleSentence}
+                        onChange={(event) => setFormExampleSentence(event.target.value)}
+                        disabled={isSavingExpression}
+                        rows={4}
+                      />
+                      <button type="submit" className="primaryCtaButton" disabled={isSavingExpression}>
+                        {isSavingExpression ? "保存中..." : "保存"}
+                      </button>
+                    </form>
                   </div>
-                  <form className="expressionForm" onSubmit={handleSaveExpression}>
-                    <label className="expressionFieldLabel" htmlFor="expression-input">
-                      保存する表現
-                    </label>
-                    <input
-                      id="expression-input"
-                      type="text"
-                      value={formExpression}
-                      onChange={(event) => setFormExpression(event.target.value)}
-                      disabled={isSavingExpression}
-                    />
-                    <label className="expressionFieldLabel" htmlFor="meaning-input">
-                      意味
-                    </label>
-                    <input
-                      id="meaning-input"
-                      type="text"
-                      value={formMeaning}
-                      onChange={(event) => setFormMeaning(event.target.value)}
-                      disabled={isSavingExpression}
-                    />
-                    <label className="expressionFieldLabel" htmlFor="example-sentence-input">
-                      例文
-                    </label>
-                    <textarea
-                      id="example-sentence-input"
-                      className="expressionTextarea"
-                      value={formExampleSentence}
-                      onChange={(event) => setFormExampleSentence(event.target.value)}
-                      disabled={isSavingExpression}
-                      rows={4}
-                    />
-                    <button type="submit" className="primaryCtaButton" disabled={isSavingExpression}>
-                      {isSavingExpression ? "保存中..." : "保存"}
-                    </button>
-                  </form>
                 </div>
-              </div>
 
-              <div className="learningSection transcriptColumn">
-                <div className="learningSectionHeader">
-                  <div>
-                    <h2>字幕</h2>
-                    <p>再生位置: {(currentMs / 1000).toFixed(1)}s</p>
+                <div className="learningSection transcriptColumn">
+                  <div className="learningSectionHeader">
+                    <div>
+                      <h2>字幕</h2>
+                      <p>再生位置: {(currentMs / 1000).toFixed(1)}s</p>
+                    </div>
+                    {activeSegment ? (
+                      <div className="activeSubtitleSummary">
+                        <span className="activeSubtitleLabel">再生中</span>
+                        <p>{activeSegment.text}</p>
+                      </div>
+                    ) : (
+                      <div className="activeSubtitleSummary idle">
+                        <span className="activeSubtitleLabel">再生中</span>
+                        <p>再生位置に対応する字幕がまだありません。</p>
+                      </div>
+                    )}
                   </div>
-                  {activeSegment ? (
-                    <div className="activeSubtitleSummary">
-                      <span className="activeSubtitleLabel">再生中</span>
-                      <p>{activeSegment.text}</p>
+                  {segments.length === 0 ? (
+                    <div className="learningEmptyCard">
+                      <h3>字幕がまだありません</h3>
+                      <p>字幕データの生成後にここへ表示されます。</p>
                     </div>
                   ) : (
-                    <div className="activeSubtitleSummary idle">
-                      <span className="activeSubtitleLabel">再生中</span>
-                      <p>再生位置に対応する字幕がまだありません。</p>
+                    <div className="segmentList" aria-label="字幕一覧">
+                      {segments.map((segment) => {
+                        const isActive = segment.id === activeSegmentId;
+                        const isSelected = segment.id === selectedSegmentId;
+                        return (
+                          <button
+                            key={segment.id}
+                            type="button"
+                            className={`segmentButton${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
+                            onClick={() => {
+                              setSelectedSegmentId(segment.id);
+                              seekToSegment(segment.startMs);
+                            }}
+                          >
+                            <span className="segmentTime">[{(segment.startMs / 1000).toFixed(1)}s]</span>
+                            <span className="segmentText">{segment.text}</span>
+                            <span className="segmentStateText">{isActive ? "再生中" : isSelected ? "選択中" : ""}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
-                {segments.length === 0 ? (
-                  <div className="learningEmptyCard">
-                    <h3>字幕がまだありません</h3>
-                    <p>字幕データの生成後にここへ表示されます。</p>
-                  </div>
-                ) : (
-                  <div className="segmentList" aria-label="字幕一覧">
-                    {segments.map((segment) => {
-                      const isActive = segment.id === activeSegmentId;
-                      const isSelected = segment.id === selectedSegmentId;
-                      return (
-                        <button
-                          key={segment.id}
-                          type="button"
-                          className={`segmentButton${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
-                          onClick={() => {
-                            setSelectedSegmentId(segment.id);
-                            seekToSegment(segment.startMs);
-                          }}
-                        >
-                          <span className="segmentTime">[{(segment.startMs / 1000).toFixed(1)}s]</span>
-                          <span className="segmentText">{segment.text}</span>
-                          <span className="segmentStateText">{isActive ? "再生中" : isSelected ? "選択中" : ""}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
-            </div>
-            <div className="subtitleTapPanel">
-              <div className="learningSectionHeader compact">
-                <div>
-                  <h3>選択中の字幕</h3>
-                  <p>{selectedSegment ? selectedSegment.text : "一覧から字幕をタップすると、その位置から動画を再生できます。"}</p>
-                </div>
-                {selectedSegment ? (
-                  <button
-                    type="button"
-                    className="secondaryActionButton"
-                    onClick={() => {
-                      seekToSegment(selectedSegment.startMs);
-                    }}
-                  >
-                    この位置から再生
-                  </button>
-                ) : null}
-              </div>
-              {expressionError ? (
-                <div className="learningInlineError" role="alert">
-                  {expressionError}
-                </div>
-              ) : null}
-              <div className="savedExpressionsSection">
+              <div className="subtitleTapPanel">
                 <div className="learningSectionHeader compact">
                   <div>
-                    <h3>保存された表現</h3>
+                    <h3>選択中の字幕</h3>
+                    <p>{selectedSegment ? selectedSegment.text : "一覧から字幕をタップすると、その位置から動画を再生できます。"}</p>
                   </div>
+                  {selectedSegment ? (
+                    <button
+                      type="button"
+                      className="secondaryActionButton"
+                      onClick={() => {
+                        seekToSegment(selectedSegment.startMs);
+                      }}
+                    >
+                      この位置から再生
+                    </button>
+                  ) : null}
                 </div>
-                {savedExpressions.length === 0 ? (
-                  <div className="learningEmptyCard compact">
-                    <h3>まだ表現は保存されていません</h3>
-                    <p>動画下のフォームから、この動画で学習したい表現を追加できます。</p>
+                {expressionError ? (
+                  <div className="learningInlineError" role="alert">
+                    {expressionError}
                   </div>
-                ) : (
-                  <div className="savedExpressionsList">
-                    {savedExpressions.map((savedExpression) => {
-                      const matches = expressionMatches[savedExpression.expressionId] ?? [];
-                      return (
-                        <article key={savedExpression.expressionId} className="savedExpressionCard">
-                          <div className="savedExpressionBody">
-                            <dl className="savedExpressionDetails">
-                              <div>
-                                <dt>表現</dt>
-                                <dd>{savedExpression.expression}</dd>
-                              </div>
-                              <div>
-                                <dt>意味</dt>
-                                <dd>{savedExpression.meaning}</dd>
-                              </div>
-                              <div>
-                                <dt>例文</dt>
-                                <dd>{savedExpression.exampleSentence}</dd>
-                              </div>
-                            </dl>
-                            <div className="savedExpressionScenes">
-                              <span className="savedExpressionScenesTitle">この動画で使われているシーン</span>
-                              {matches.length === 0 ? (
-                                <p className="savedExpressionSceneEmpty">
-                                  この動画の字幕では、完全一致するシーンをまだ見つけられていません。
-                                </p>
-                              ) : (
-                                <div className="savedExpressionSceneList">
-                                  {matches.map((segment) => (
-                                    <button
-                                      key={`${savedExpression.expressionId}-${segment.id}`}
-                                      type="button"
-                                      className="savedExpressionSceneButton"
-                                      onClick={() => {
-                                        setSelectedSegmentId(segment.id);
-                                        seekToSegment(segment.startMs);
-                                        focusVideoArea();
-                                      }}
-                                    >
-                                      [{(segment.startMs / 1000).toFixed(1)}s] {segment.text}
-                                    </button>
-                                  ))}
+                ) : null}
+                <div className="savedExpressionsSection">
+                  <div className="learningSectionHeader compact">
+                    <div>
+                      <h3>保存された表現</h3>
+                    </div>
+                  </div>
+                  {savedExpressions.length === 0 ? (
+                    <div className="learningEmptyCard compact">
+                      <h3>まだ表現は保存されていません</h3>
+                      <p>動画下のフォームから、この動画で学習したい表現を追加できます。</p>
+                    </div>
+                  ) : (
+                    <div className="savedExpressionsList">
+                      {savedExpressions.map((savedExpression) => {
+                        const matches = expressionMatches[savedExpression.expressionId] ?? [];
+                        return (
+                          <article key={savedExpression.expressionId} className="savedExpressionCard">
+                            <div className="savedExpressionBody">
+                              <dl className="savedExpressionDetails">
+                                <div>
+                                  <dt>表現</dt>
+                                  <dd>{savedExpression.expression}</dd>
                                 </div>
-                              )}
+                                <div>
+                                  <dt>意味</dt>
+                                  <dd>{savedExpression.meaning}</dd>
+                                </div>
+                                <div>
+                                  <dt>例文</dt>
+                                  <dd>{savedExpression.exampleSentence}</dd>
+                                </div>
+                              </dl>
+                              <div className="savedExpressionScenes">
+                                <span className="savedExpressionScenesTitle">この動画で使われているシーン</span>
+                                {matches.length === 0 ? (
+                                  <p className="savedExpressionSceneEmpty">
+                                    この動画の字幕では、完全一致するシーンをまだ見つけられていません。
+                                  </p>
+                                ) : (
+                                  <div className="savedExpressionSceneList">
+                                    {matches.map((segment) => (
+                                      <button
+                                        key={`${savedExpression.expressionId}-${segment.id}`}
+                                        type="button"
+                                        className="savedExpressionSceneButton"
+                                        onClick={() => {
+                                          setSelectedSegmentId(segment.id);
+                                          seekToSegment(segment.startMs);
+                                          focusVideoArea();
+                                        }}
+                                      >
+                                        [{(segment.startMs / 1000).toFixed(1)}s] {segment.text}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          <button
-                            type="button"
-                            className="secondaryActionButton savedExpressionDeleteButton"
-                            onClick={() => {
-                              void handleDeleteExpression(savedExpression.expressionId);
-                            }}
-                            disabled={deletingExpressionId === savedExpression.expressionId}
-                          >
-                            {deletingExpressionId === savedExpression.expressionId ? "削除中..." : "削除"}
-                          </button>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
+                            <button
+                              type="button"
+                              className="secondaryActionButton savedExpressionDeleteButton"
+                              onClick={() => {
+                                void handleDeleteExpression(savedExpression.expressionId);
+                              }}
+                              disabled={deletingExpressionId === savedExpression.expressionId}
+                            >
+                              {deletingExpressionId === savedExpression.expressionId ? "削除中..." : "削除"}
+                            </button>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            </section>
+          </div>
+        ) : null}
+        {!loading && !error && !material ? (
+          <section className="learningStateCard empty">
+            <h2>教材が見つかりません</h2>
+            <p>登録状況を確認してから、もう一度開いてください。</p>
           </section>
-        </div>
-      ) : null}
-      {!loading && !error && !material ? (
-        <section className="learningStateCard empty">
-          <h2>教材が見つかりません</h2>
-          <p>登録状況を確認してから、もう一度開いてください。</p>
-        </section>
-      ) : null}
-      <p className="learningBackLink">
-        <Link href="/">トップへ戻る</Link>
-      </p>
+        ) : null}
+        <p className="learningBackLink">
+          <Link href="/">トップへ戻る</Link>
+        </p>
+      </div>
     </main>
   );
 }

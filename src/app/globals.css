@@ -59,7 +59,7 @@ main {
   min-height: 100vh;
   isolation: isolate;
   padding: clamp(0.75rem, 1.8vw, 1.5rem);
-  background: #0a0a0a;
+  background: #ffffff;
 }
 
 .learningPage::before {
@@ -67,11 +67,7 @@ main {
   position: fixed;
   inset: 0;
   z-index: -2;
-  background-image:
-    radial-gradient(ellipse at 20% 30%, rgba(56, 189, 248, 0.34) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 70%, rgba(139, 92, 246, 0.28) 0%, transparent 70%),
-    radial-gradient(ellipse at 60% 20%, rgba(236, 72, 153, 0.22) 0%, transparent 50%),
-    radial-gradient(ellipse at 40% 80%, rgba(34, 197, 94, 0.18) 0%, transparent 65%);
+  background: #ffffff;
 }
 
 .learningPage::after {
@@ -80,8 +76,9 @@ main {
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(180deg, rgba(6, 10, 20, 0.18) 0%, rgba(6, 10, 20, 0.6) 100%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
+    radial-gradient(circle at top center, rgba(70, 130, 180, 0.34), transparent 68%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(236, 244, 255, 0.56) 100%);
+  filter: blur(80px);
   pointer-events: none;
 }
 
@@ -274,34 +271,38 @@ main {
   gap: 1rem;
   position: relative;
   min-height: 100vh;
-  padding: clamp(1rem, 2vw, 1.6rem);
+  width: 100%;
+  padding: clamp(1rem, 2vw, 1.8rem);
   border-radius: 28px;
   overflow: hidden;
   isolation: isolate;
-  background: #0a0a0a;
+  background: #ffffff;
 }
 
 .learningScreen::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  background-image:
-    radial-gradient(ellipse at 20% 30%, rgba(56, 189, 248, 0.4) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 70%, rgba(139, 92, 246, 0.3) 0%, transparent 70%),
-    radial-gradient(ellipse at 60% 20%, rgba(236, 72, 153, 0.25) 0%, transparent 50%),
-    radial-gradient(ellipse at 40% 80%, rgba(34, 197, 94, 0.2) 0%, transparent 65%);
+  content: none;
 }
 
 .learningScreen::after {
-  content: "";
+  content: none;
+}
+
+.learningScreenGlow {
   position: absolute;
   inset: 0;
-  z-index: -1;
-  background:
-    linear-gradient(180deg, rgba(6, 10, 20, 0.16) 0%, rgba(6, 10, 20, 0.48) 100%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+  z-index: 0;
+  background: #ffffff;
+  background-image: radial-gradient(circle at top center, rgba(70, 130, 180, 0.5), transparent 70%);
+  background-repeat: no-repeat;
+  filter: blur(80px);
   pointer-events: none;
+}
+
+.learningScreenContent {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 1rem;
 }
 
 .learningScreenHeader {
@@ -368,12 +369,12 @@ main {
 .learningHeroSection,
 .learningStateCard,
 .learningEmptyCard {
-  background: linear-gradient(180deg, rgba(9, 14, 26, 0.62) 0%, rgba(9, 14, 26, 0.42) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(245, 250, 255, 0.88) 100%);
+  border: 1px solid rgba(133, 164, 201, 0.22);
   border-radius: 18px;
   padding: 1rem;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
-  backdrop-filter: blur(20px);
+  box-shadow: 0 20px 44px rgba(80, 122, 166, 0.12);
+  backdrop-filter: blur(18px);
 }
 
 .learningScreen .learningSectionHeader h2,
@@ -384,7 +385,7 @@ main {
 .learningScreen .savedExpressionDetails dt,
 .learningScreen .savedExpressionScenesTitle,
 .learningScreen .learningBackLink a {
-  color: #f8fafc;
+  color: #16324f;
 }
 
 .learningScreen .learningSectionHeader p,
@@ -392,7 +393,7 @@ main {
 .learningScreen .learningEmptyCard p,
 .learningScreen .savedExpressionDetails dd,
 .learningScreen .savedExpressionSceneEmpty {
-  color: rgba(226, 232, 240, 0.82);
+  color: #4a627a;
 }
 
 .learningSectionHeader {
@@ -423,21 +424,21 @@ main {
 
 .learningStateCard.loading {
   background:
-    linear-gradient(135deg, rgba(14, 165, 233, 0.2) 0%, rgba(15, 23, 42, 0.52) 100%);
+    linear-gradient(135deg, rgba(70, 130, 180, 0.18) 0%, rgba(245, 250, 255, 0.96) 100%);
 }
 
 .learningStateCard.error,
 .learningInlineError {
-  background: rgba(127, 29, 29, 0.3);
-  border: 1px solid rgba(248, 113, 113, 0.38);
-  color: #fecaca;
+  background: rgba(252, 232, 232, 0.92);
+  border: 1px solid rgba(225, 129, 129, 0.45);
+  color: #9f2d2d;
   border-radius: 10px;
   padding: 0.75rem 0.9rem;
 }
 
 .learningStateCard.empty,
 .learningEmptyCard {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.56) 0%, rgba(15, 23, 42, 0.4) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(242, 247, 253, 0.88) 100%);
 }
 
 .learningEmptyCard.compact {
@@ -447,16 +448,16 @@ main {
 .activeSubtitleSummary {
   min-width: min(320px, 100%);
   flex: 1 1 280px;
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.16) 0%, rgba(30, 41, 59, 0.72) 100%);
-  border: 1px solid rgba(125, 211, 252, 0.26);
+  background: linear-gradient(135deg, rgba(112, 169, 216, 0.16) 0%, rgba(241, 247, 255, 0.92) 100%);
+  border: 1px solid rgba(112, 169, 216, 0.28);
   border-radius: 12px;
   padding: 0.8rem 0.95rem;
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(12px);
 }
 
 .activeSubtitleSummary.idle {
-  background: rgba(15, 23, 42, 0.46);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(247, 250, 255, 0.88);
+  border-color: rgba(133, 164, 201, 0.2);
 }
 
 .activeSubtitleSummary p {
@@ -468,11 +469,11 @@ main {
   display: inline-flex;
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
-  background: rgba(14, 165, 233, 0.22);
-  color: #e0f2fe;
+  background: rgba(70, 130, 180, 0.14);
+  color: #22517c;
   font-size: 0.72rem;
   font-weight: 700;
-  border: 1px solid rgba(125, 211, 252, 0.28);
+  border: 1px solid rgba(70, 130, 180, 0.18);
 }
 
 .segmentList {
@@ -555,26 +556,27 @@ input[disabled] {
   align-items: center;
   width: 100%;
   text-align: left;
-  background: rgba(15, 23, 42, 0.42);
-  color: #e2e8f0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.8);
+  color: #23415f;
+  border: 1px solid rgba(133, 164, 201, 0.2);
   padding: 0.8rem 0.9rem;
-  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 22px rgba(80, 122, 166, 0.08);
+  backdrop-filter: blur(10px);
 }
 
 .segmentButton.active {
-  background: rgba(56, 189, 248, 0.18);
-  border-color: rgba(125, 211, 252, 0.44);
-  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.12);
+  background: rgba(219, 236, 251, 0.92);
+  border-color: rgba(70, 130, 180, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(70, 130, 180, 0.08);
 }
 
 .segmentButton.selected {
-  background: rgba(139, 92, 246, 0.16);
-  border-color: rgba(196, 181, 253, 0.4);
+  background: rgba(235, 244, 255, 0.94);
+  border-color: rgba(104, 149, 192, 0.34);
 }
 
 .segmentTime {
-  color: rgba(191, 219, 254, 0.88);
+  color: #54789d;
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
 }
@@ -584,7 +586,7 @@ input[disabled] {
 }
 
 .segmentStateText {
-  color: #7dd3fc;
+  color: #2f6ea2;
   font-size: 0.8rem;
   font-weight: 700;
 }
@@ -594,10 +596,10 @@ input[disabled] {
   gap: 1rem;
   padding: 0.95rem;
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(7, 11, 23, 0.52) 0%, rgba(7, 11, 23, 0.38) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(18px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(244, 249, 255, 0.86) 100%);
+  border: 1px solid rgba(133, 164, 201, 0.2);
+  box-shadow: 0 16px 36px rgba(80, 122, 166, 0.1);
+  backdrop-filter: blur(16px);
 }
 
 .expressionFormPanel {
@@ -605,7 +607,7 @@ input[disabled] {
   gap: 0.75rem;
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(133, 164, 201, 0.2);
 }
 
 .expressionForm {
@@ -770,10 +772,10 @@ input[disabled] {
   align-items: flex-start;
   padding: 0.95rem;
   border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(15, 23, 42, 0.38);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(14px);
+  border: 1px solid rgba(133, 164, 201, 0.18);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(12px);
 }
 
 .savedExpressionBody,
@@ -800,13 +802,13 @@ input[disabled] {
 .savedExpressionDetails dt,
 .savedExpressionScenesTitle {
   font-weight: 800;
-  color: #4d5d3f;
+  color: #244666;
 }
 
 .savedExpressionDetails dd,
 .savedExpressionSceneEmpty {
   margin: 0;
-  color: #465043;
+  color: #50677d;
   line-height: 1.55;
 }
 
@@ -833,9 +835,9 @@ input[disabled] {
 .savedExpressionSceneButton {
   justify-content: flex-start;
   text-align: left;
-  background: rgba(30, 41, 59, 0.54);
-  color: #e2e8f0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(237, 245, 255, 0.92);
+  color: #23415f;
+  border: 1px solid rgba(133, 164, 201, 0.18);
 }
 
 .savedExpressionDeleteButton {
@@ -847,17 +849,18 @@ input[disabled] {
   width: 100%;
   aspect-ratio: 16 / 9;
   margin-top: 0.8rem;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(133, 164, 201, 0.24);
   border-radius: 18px;
   overflow: hidden;
   background: #000;
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.26);
+  box-shadow: 0 24px 48px rgba(80, 122, 166, 0.16);
 }
 
 .secondaryActionButton {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e0f2fe;
-  border: 1px solid rgba(125, 211, 252, 0.28);
+  background: rgba(239, 246, 255, 0.9);
+  color: #22517c;
+  border: 1px solid rgba(104, 149, 192, 0.24);
+  box-shadow: 0 10px 24px rgba(80, 122, 166, 0.1);
   backdrop-filter: blur(10px);
 }
 
@@ -867,24 +870,24 @@ input[disabled] {
 
 .learningScreen input[type="text"],
 .learningScreen textarea {
-  background: rgba(15, 23, 42, 0.44);
-  border-color: rgba(255, 255, 255, 0.14);
-  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(133, 164, 201, 0.24);
+  color: #16324f;
 }
 
 .learningScreen input[type="text"]::placeholder,
 .learningScreen textarea::placeholder {
-  color: rgba(226, 232, 240, 0.46);
+  color: rgba(74, 98, 122, 0.52);
 }
 
 .learningScreen input[disabled],
 .learningScreen textarea[disabled] {
-  background: rgba(15, 23, 42, 0.26);
+  background: rgba(241, 246, 252, 0.92);
 }
 
 .learningScreen .primaryCtaButton {
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.92) 0%, rgba(59, 130, 246, 0.88) 100%);
-  box-shadow: 0 14px 30px rgba(14, 165, 233, 0.22);
+  background: linear-gradient(135deg, #4d88be 0%, #2f6ea2 100%);
+  box-shadow: 0 14px 30px rgba(70, 130, 180, 0.2);
 }
 
 .youtubePlayerFrame {
