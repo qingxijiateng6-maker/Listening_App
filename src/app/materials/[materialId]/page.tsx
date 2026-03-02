@@ -7,5 +7,9 @@ type Props = {
 export default async function MaterialPage({ params }: Props) {
   const { materialId } = await params;
 
-  return <MaterialLearningScreen materialId={materialId} />;
+  return (
+    <div className="learningPage">
+      <MaterialLearningScreen materialId={materialId} />
+    </div>
+  );
 }

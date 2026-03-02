@@ -15,7 +15,6 @@ import {
 
 export function AuthTopRight() {
   const [isAnonymous, setIsAnonymous] = useState<boolean>(true);
-  const [email, setEmail] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [errorCode, setErrorCode] = useState<string>("");
@@ -23,7 +22,6 @@ export function AuthTopRight() {
 
   function applyUserState(user: User | null, nextStatusMessage?: string): void {
     setIsAnonymous(user?.isAnonymous ?? true);
-    setEmail(user?.email ?? "");
     setStatusMessage(() => {
       if (nextStatusMessage) {
         return nextStatusMessage;
@@ -145,7 +143,6 @@ export function AuthTopRight() {
         </button>
       ) : (
         <>
-          <div className="googleLoginDone">Googleログイン済み{email ? `: ${email}` : ""}</div>
           <button type="button" className="secondaryActionButton" onClick={() => void handleSignOut()} disabled={loading}>
             {loading ? "ログアウト中..." : "ログアウト"}
           </button>

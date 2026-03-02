@@ -176,6 +176,9 @@ export function MaterialHistoryList() {
           ))}
         </div>
       )}
+      <p className="learningBackLink">
+        <Link href="/">トップへ戻る</Link>
+      </p>
     </section>
   );
 }

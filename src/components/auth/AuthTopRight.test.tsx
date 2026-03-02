@@ -70,9 +70,9 @@ describe("AuthTopRight", () => {
     await waitFor(() => {
       expect(screen.getByText("状態: Googleログイン済み")).toBeInTheDocument();
     });
-    expect(screen.getByText("Googleログイン済み: user@example.com")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ログアウト" })).toBeInTheDocument();
     expect(screen.queryByText(/Googleアカウントでログイン/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Googleログイン済み:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/uid:/)).not.toBeInTheDocument();
   });
 

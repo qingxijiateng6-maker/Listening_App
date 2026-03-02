@@ -54,6 +54,37 @@ main {
   background: radial-gradient(circle at 50% 30%, #e9d5ff 0%, #c4b5fd 25%, #a78bfa 50%, #7c3aed 75%, #5b21b6 100%);
 }
 
+.learningPage {
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+  padding: clamp(0.75rem, 1.8vw, 1.5rem);
+  background: #0a0a0a;
+}
+
+.learningPage::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-image:
+    radial-gradient(ellipse at 20% 30%, rgba(56, 189, 248, 0.34) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 70%, rgba(139, 92, 246, 0.28) 0%, transparent 70%),
+    radial-gradient(ellipse at 60% 20%, rgba(236, 72, 153, 0.22) 0%, transparent 50%),
+    radial-gradient(ellipse at 40% 80%, rgba(34, 197, 94, 0.18) 0%, transparent 65%);
+}
+
+.learningPage::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgba(6, 10, 20, 0.18) 0%, rgba(6, 10, 20, 0.6) 100%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
 .homePage {
   display: grid;
   gap: 1.25rem;
@@ -241,6 +272,36 @@ main {
 .learningScreen {
   display: grid;
   gap: 1rem;
+  position: relative;
+  min-height: 100vh;
+  padding: clamp(1rem, 2vw, 1.6rem);
+  border-radius: 28px;
+  overflow: hidden;
+  isolation: isolate;
+  background: #0a0a0a;
+}
+
+.learningScreen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image:
+    radial-gradient(ellipse at 20% 30%, rgba(56, 189, 248, 0.4) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 70%, rgba(139, 92, 246, 0.3) 0%, transparent 70%),
+    radial-gradient(ellipse at 60% 20%, rgba(236, 72, 153, 0.25) 0%, transparent 50%),
+    radial-gradient(ellipse at 40% 80%, rgba(34, 197, 94, 0.2) 0%, transparent 65%);
+}
+
+.learningScreen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgba(6, 10, 20, 0.16) 0%, rgba(6, 10, 20, 0.48) 100%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+  pointer-events: none;
 }
 
 .learningScreenHeader {
@@ -257,7 +318,7 @@ main {
 
 .learningScreenLead {
   margin: 0.45rem 0 0;
-  color: #58677b;
+  color: rgba(226, 232, 240, 0.72);
 }
 
 .learningScreenMeta {
@@ -271,10 +332,11 @@ main {
   align-items: center;
   padding: 0.4rem 0.65rem;
   border-radius: 999px;
-  background: #e8eef8;
-  border: 1px solid #c7d4e8;
-  color: #365072;
+  background: rgba(15, 23, 42, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #dbeafe;
   font-size: 0.8rem;
+  backdrop-filter: blur(10px);
 }
 
 .learningLayout {
@@ -306,10 +368,31 @@ main {
 .learningHeroSection,
 .learningStateCard,
 .learningEmptyCard {
-  background: #ffffff;
-  border: 1px solid #d9e0ea;
-  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(9, 14, 26, 0.62) 0%, rgba(9, 14, 26, 0.42) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
   padding: 1rem;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(20px);
+}
+
+.learningScreen .learningSectionHeader h2,
+.learningScreen .learningSectionHeader h3,
+.learningScreen .learningStateCard h2,
+.learningScreen .learningEmptyCard h3,
+.learningScreen .expressionFieldLabel,
+.learningScreen .savedExpressionDetails dt,
+.learningScreen .savedExpressionScenesTitle,
+.learningScreen .learningBackLink a {
+  color: #f8fafc;
+}
+
+.learningScreen .learningSectionHeader p,
+.learningScreen .learningStateCard p,
+.learningScreen .learningEmptyCard p,
+.learningScreen .savedExpressionDetails dd,
+.learningScreen .savedExpressionSceneEmpty {
+  color: rgba(226, 232, 240, 0.82);
 }
 
 .learningSectionHeader {
@@ -339,21 +422,22 @@ main {
 }
 
 .learningStateCard.loading {
-  background: linear-gradient(135deg, #f7fbff 0%, #eef4fc 100%);
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.2) 0%, rgba(15, 23, 42, 0.52) 100%);
 }
 
 .learningStateCard.error,
 .learningInlineError {
-  background: #fdecea;
-  border: 1px solid #f4b8b3;
-  color: #8a231c;
+  background: rgba(127, 29, 29, 0.3);
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  color: #fecaca;
   border-radius: 10px;
   padding: 0.75rem 0.9rem;
 }
 
 .learningStateCard.empty,
 .learningEmptyCard {
-  background: #fafcff;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.56) 0%, rgba(15, 23, 42, 0.4) 100%);
 }
 
 .learningEmptyCard.compact {
@@ -363,15 +447,16 @@ main {
 .activeSubtitleSummary {
   min-width: min(320px, 100%);
   flex: 1 1 280px;
-  background: linear-gradient(135deg, #eef4ff 0%, #e4f0ff 100%);
-  border: 1px solid #c8daf7;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.16) 0%, rgba(30, 41, 59, 0.72) 100%);
+  border: 1px solid rgba(125, 211, 252, 0.26);
   border-radius: 12px;
   padding: 0.8rem 0.95rem;
+  backdrop-filter: blur(14px);
 }
 
 .activeSubtitleSummary.idle {
-  background: #f7f9fd;
-  border-color: #d9e0ea;
+  background: rgba(15, 23, 42, 0.46);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .activeSubtitleSummary p {
@@ -383,10 +468,11 @@ main {
   display: inline-flex;
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
-  background: #1f5fbf;
-  color: #fff;
+  background: rgba(14, 165, 233, 0.22);
+  color: #e0f2fe;
   font-size: 0.72rem;
   font-weight: 700;
+  border: 1px solid rgba(125, 211, 252, 0.28);
 }
 
 .segmentList {
@@ -469,25 +555,26 @@ input[disabled] {
   align-items: center;
   width: 100%;
   text-align: left;
-  background: #eef3fa;
-  color: #1b2430;
-  border: 1px solid #d0daea;
+  background: rgba(15, 23, 42, 0.42);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 0.8rem 0.9rem;
+  backdrop-filter: blur(12px);
 }
 
 .segmentButton.active {
-  background: #d9e7fb;
-  border-color: #96b5e6;
-  box-shadow: inset 0 0 0 1px rgba(31, 95, 191, 0.15);
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(125, 211, 252, 0.44);
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.12);
 }
 
 .segmentButton.selected {
-  background: #f8fbff;
-  border-color: #7ea6e2;
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(196, 181, 253, 0.4);
 }
 
 .segmentTime {
-  color: #4f6483;
+  color: rgba(191, 219, 254, 0.88);
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
 }
@@ -497,7 +584,7 @@ input[disabled] {
 }
 
 .segmentStateText {
-  color: #1f5fbf;
+  color: #7dd3fc;
   font-size: 0.8rem;
   font-weight: 700;
 }
@@ -506,9 +593,11 @@ input[disabled] {
   display: grid;
   gap: 1rem;
   padding: 0.95rem;
-  border-radius: 12px;
-  background: #f7f9fd;
-  border: 1px solid #d9e0ea;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(7, 11, 23, 0.52) 0%, rgba(7, 11, 23, 0.38) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(18px);
 }
 
 .expressionFormPanel {
@@ -516,7 +605,7 @@ input[disabled] {
   gap: 0.75rem;
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid #e1e7f0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .expressionForm {
@@ -526,7 +615,7 @@ input[disabled] {
 
 .expressionFieldLabel {
   font-weight: 700;
-  color: #29415f;
+  color: #f8fafc;
 }
 
 .expressionTextarea {
@@ -582,8 +671,8 @@ input[disabled] {
   gap: 0.2rem;
   padding: 1rem 1.05rem;
   border-radius: 18px;
-  background: rgba(255, 248, 242, 0.08);
-  border: 1px solid rgba(255, 248, 242, 0.12);
+  background: rgba(255, 248, 242, 0.2);
+  border: 1px solid rgba(255, 248, 242, 0.24);
   backdrop-filter: blur(8px);
 }
 
@@ -612,15 +701,15 @@ input[disabled] {
   gap: 0.45rem;
   padding: 1rem 1.05rem;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  background: rgba(255, 255, 255, 0.28);
-  box-shadow: 0 14px 30px rgba(95, 125, 85, 0.1);
-  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  background: rgba(255, 252, 248, 0.74);
+  box-shadow: 0 14px 30px rgba(95, 125, 85, 0.12);
+  backdrop-filter: blur(12px);
 }
 
 .savedExpressionsOverviewCard p {
   margin: 0;
-  color: #5e4c3d;
+  color: #4f4033;
   line-height: 1.6;
 }
 
@@ -636,10 +725,16 @@ input[disabled] {
   gap: 0.8rem;
   padding: 1.1rem;
   border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  background: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 18px 36px rgba(110, 136, 94, 0.12);
-  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 252, 248, 0.68);
+  box-shadow: 0 18px 36px rgba(110, 136, 94, 0.14);
+  backdrop-filter: blur(12px);
+}
+
+.savedExpressionGroupItem {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(216, 224, 214, 0.9);
+  box-shadow: 0 10px 24px rgba(93, 108, 88, 0.08);
 }
 
 .savedExpressionGroupHeader {
@@ -657,7 +752,7 @@ input[disabled] {
 
 .savedExpressionGroupHeader p {
   margin: 0.35rem 0 0;
-  color: #5f6451;
+  color: #4f5446;
 }
 
 .savedExpressionGroupLink {
@@ -674,9 +769,11 @@ input[disabled] {
   gap: 1rem;
   align-items: flex-start;
   padding: 0.95rem;
-  border-radius: 12px;
-  border: 1px solid #d6deea;
-  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px);
 }
 
 .savedExpressionBody,
@@ -718,10 +815,10 @@ input[disabled] {
   gap: 0.8rem;
   padding: 1.25rem;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.24);
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  box-shadow: 0 18px 36px rgba(110, 136, 94, 0.12);
-  backdrop-filter: blur(18px);
+  background: rgba(255, 252, 248, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 18px 36px rgba(110, 136, 94, 0.14);
+  backdrop-filter: blur(12px);
 }
 
 .savedExpressionsStartLink {
@@ -736,9 +833,9 @@ input[disabled] {
 .savedExpressionSceneButton {
   justify-content: flex-start;
   text-align: left;
-  background: #eef3fa;
-  color: #1b2430;
-  border: 1px solid #d0daea;
+  background: rgba(30, 41, 59, 0.54);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .savedExpressionDeleteButton {
@@ -750,20 +847,44 @@ input[disabled] {
   width: 100%;
   aspect-ratio: 16 / 9;
   margin-top: 0.8rem;
-  border: 1px solid #d9e0ea;
-  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
   overflow: hidden;
   background: #000;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.26);
 }
 
 .secondaryActionButton {
-  background: #fff;
-  color: #1f5fbf;
-  border: 1px solid #9db8e0;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e0f2fe;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  backdrop-filter: blur(10px);
 }
 
 .learningBackLink {
   margin: 0;
+}
+
+.learningScreen input[type="text"],
+.learningScreen textarea {
+  background: rgba(15, 23, 42, 0.44);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f8fafc;
+}
+
+.learningScreen input[type="text"]::placeholder,
+.learningScreen textarea::placeholder {
+  color: rgba(226, 232, 240, 0.46);
+}
+
+.learningScreen input[disabled],
+.learningScreen textarea[disabled] {
+  background: rgba(15, 23, 42, 0.26);
+}
+
+.learningScreen .primaryCtaButton {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.92) 0%, rgba(59, 130, 246, 0.88) 100%);
+  box-shadow: 0 14px 30px rgba(14, 165, 233, 0.22);
 }
 
 .youtubePlayerFrame {
@@ -806,7 +927,10 @@ input[disabled] {
 }
 
 .authStatusBadge.authenticated {
-  background: #1e8e3e;
+  background: linear-gradient(135deg, rgba(22, 101, 52, 0.88) 0%, rgba(21, 128, 61, 0.74) 100%);
+  border: 1px solid rgba(134, 239, 172, 0.16);
+  box-shadow: 0 8px 22px rgba(21, 128, 61, 0.16);
+  backdrop-filter: blur(10px);
 }
 
 .authStatusText {
@@ -828,12 +952,15 @@ input[disabled] {
 }
 
 .googleLoginDone {
-  background: #1e8e3e;
-  color: #fff;
+  background: linear-gradient(135deg, rgba(22, 101, 52, 0.82) 0%, rgba(21, 128, 61, 0.68) 100%);
+  color: #f0fdf4;
+  border: 1px solid rgba(134, 239, 172, 0.14);
   border-radius: 10px;
   padding: 0.55rem 0.8rem;
   font-size: 0.85rem;
   text-align: center;
+  box-shadow: 0 10px 24px rgba(21, 128, 61, 0.14);
+  backdrop-filter: blur(10px);
 }
 
 .authUid {

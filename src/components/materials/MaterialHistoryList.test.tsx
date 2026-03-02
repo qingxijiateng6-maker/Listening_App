@@ -89,6 +89,8 @@ describe("MaterialHistoryList", () => {
       expect(screen.getByText("Video Two")).toBeInTheDocument();
     });
 
+    expect(screen.getByRole("link", { name: "トップへ戻る" })).toHaveAttribute("href", "/");
+
     fireEvent.click(screen.getAllByRole("button", { name: "削除" })[0]!);
 
     await waitFor(() => {
