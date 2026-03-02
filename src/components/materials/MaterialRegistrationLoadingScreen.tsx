@@ -19,7 +19,7 @@ export function MaterialRegistrationLoadingScreen() {
     let cancelled = false;
 
     async function registerMaterial() {
-      const youtubeUrl = searchParams.get("youtubeUrl")?.trim() ?? "";
+      const youtubeUrl = searchParams?.get("youtubeUrl")?.trim() ?? "";
       if (!youtubeUrl) {
         setError("YouTube公開動画のURL形式で入力してください。");
         return;

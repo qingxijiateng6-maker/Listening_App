@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 import {
   completeGoogleRedirectSignIn,
@@ -20,7 +20,7 @@ export function AuthTopRight() {
   const [errorCode, setErrorCode] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState<string>("匿名ユーザーを準備中です。");
 
-  function applyUserState(user: User | null, nextStatusMessage?: string): void {
+  const applyUserState = useCallback((user: User | null, nextStatusMessage?: string): void => {
     setIsAnonymous(user?.isAnonymous ?? true);
     setStatusMessage(() => {
       if (nextStatusMessage) {
@@ -34,12 +34,12 @@ export function AuthTopRight() {
       }
       return "";
     });
-  }
+  }, []);
 
-  async function restoreAnonymousDashboard(): Promise<void> {
+  const restoreAnonymousDashboard = useCallback(async (): Promise<void> => {
     const anonymousUser = await ensureAnonymousSession();
     applyUserState(anonymousUser, "匿名ゲストとして利用中です。");
-  }
+  }, [applyUserState]);
 
   useEffect(() => {
     setError(getFirebaseAuthErrorMessage());
@@ -78,7 +78,7 @@ export function AuthTopRight() {
           const nextCode = getFirebaseAuthErrorCode();
           return nextCode !== "unknown" ? nextCode : currentCode;
         });
-      } catch (redirectError) {
+      } catch {
         await restoreAnonymousDashboard();
         setError("ログインに失敗しました。");
         setErrorCode(getFirebaseAuthErrorCode());
@@ -88,7 +88,7 @@ export function AuthTopRight() {
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [applyUserState, restoreAnonymousDashboard]);
 
   async function handleGoogleSignIn(): Promise<void> {
     setError("");
@@ -107,7 +107,7 @@ export function AuthTopRight() {
           ? "匿名ユーザーをGoogleアカウントに連携しました。"
           : "",
       );
-    } catch (signInError) {
+    } catch {
       await restoreAnonymousDashboard();
       setError("ログインに失敗しました。");
       setErrorCode(getFirebaseAuthErrorCode());
