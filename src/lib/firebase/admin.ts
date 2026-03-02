@@ -8,10 +8,28 @@ type AdminConfig = {
   privateKey: string;
 };
 
+function normalizeEnvValue(value: string | undefined): string {
+  const trimmed = (value ?? "").trim();
+  if (
+    (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+}
+
+export function normalizeFirebasePrivateKey(value: string | undefined): string {
+  return normalizeEnvValue(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\\n/g, "\n");
+}
+
 function getAdminConfig(): AdminConfig {
-  const projectId = process.env.FIREBASE_PROJECT_ID ?? "";
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL ?? "";
-  const privateKey = (process.env.FIREBASE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
+  const projectId = normalizeEnvValue(process.env.FIREBASE_PROJECT_ID);
+  const clientEmail = normalizeEnvValue(process.env.FIREBASE_CLIENT_EMAIL);
+  const privateKey = normalizeFirebasePrivateKey(process.env.FIREBASE_PRIVATE_KEY);
 
   const missing = [
     ["FIREBASE_PROJECT_ID", projectId],
