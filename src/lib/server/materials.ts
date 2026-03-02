@@ -107,3 +107,30 @@ export async function deleteMaterialExpression(materialId: string, expressionId:
   await expressionRef.delete();
   return true;
 }
+
+export async function deleteMaterial(materialId: string): Promise<boolean | null> {
+  const materialSnapshot = await getMaterialSnapshot(materialId);
+  if (!materialSnapshot.exists) {
+    return null;
+  }
+
+  const subcollectionNames = ["expressions", "segments"];
+
+  await Promise.all(
+    subcollectionNames.map(async (subcollectionName) => {
+      const snapshot = await materialSnapshot.ref.collection(subcollectionName).get();
+      if (snapshot.empty) {
+        return;
+      }
+
+      const batch = getAdminDb().batch();
+      snapshot.docs.forEach((docSnapshot) => {
+        batch.delete(docSnapshot.ref);
+      });
+      await batch.commit();
+    }),
+  );
+
+  await materialSnapshot.ref.delete();
+  return true;
+}

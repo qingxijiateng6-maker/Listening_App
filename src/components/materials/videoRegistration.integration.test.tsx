@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoRegistrationForm } from "@/components/materials/VideoRegistrationForm";
 
 const pushMock = vi.fn();
-const fetchMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -30,19 +29,9 @@ vi.mock("@/lib/youtube", () => ({
 describe("Video registration integration", () => {
   beforeEach(() => {
     pushMock.mockReset();
-    fetchMock.mockReset();
-    vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("reuses existing material and avoids duplicate material/job creation", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        materialId: "existing-mat-1",
-        reused: true,
-      }),
-    });
-
+  it("moves to the loading screen immediately after submit", async () => {
     render(<VideoRegistrationForm />);
 
     fireEvent.change(screen.getByLabelText("Youtube URL"), {
@@ -51,42 +40,9 @@ describe("Video registration integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "動画を登録" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(pushMock).toHaveBeenCalledWith("/materials/existing-mat-1");
-    });
-
-    expect(screen.queryByText("既存教材を再利用します。")).not.toBeInTheDocument();
-  });
-
-  it("creates material via API and routes to learning page", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        materialId: "mat1",
-        reused: false,
-      }),
-    });
-
-    render(<VideoRegistrationForm />);
-
-    fireEvent.change(screen.getByLabelText("Youtube URL"), {
-      target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "動画を登録" }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/materials",
-        expect.objectContaining({
-          method: "POST",
-          headers: expect.objectContaining({
-            "content-type": "application/json",
-            "x-user-id": "u1",
-            authorization: "Bearer token-1",
-          }),
-        }),
+      expect(pushMock).toHaveBeenCalledWith(
+        "/materials/loading?youtubeUrl=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ",
       );
-      expect(pushMock).toHaveBeenCalledWith("/materials/mat1");
     });
   });
 });

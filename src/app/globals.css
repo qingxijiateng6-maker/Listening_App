@@ -122,6 +122,20 @@ main {
   color: inherit;
 }
 
+.historyListCard {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.9rem;
+}
+
+.historyListCardLink {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
 .historyListCardStatus {
   display: inline-flex;
   width: fit-content;
@@ -142,6 +156,16 @@ main {
 .historyListCardMeta {
   color: #58677b;
   font-size: 0.88rem;
+}
+
+.historyListDeleteButton {
+  min-width: 104px;
+  padding: 0.8rem 1rem;
+  align-self: end;
+  background: #c9392b;
+  color: #fff;
+  font-size: 0.98rem;
+  font-weight: 800;
 }
 
 .learningScreen {
@@ -445,6 +469,46 @@ input[disabled] {
   gap: 0.85rem;
 }
 
+.savedExpressionGroups,
+.savedExpressionGroupList {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.savedExpressionGroupCard,
+.savedExpressionGroupItem {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid #d9e0ea;
+  background: #ffffff;
+}
+
+.savedExpressionGroupHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.savedExpressionGroupHeader h2 {
+  margin: 0;
+}
+
+.savedExpressionGroupHeader p {
+  margin: 0.35rem 0 0;
+  color: #58677b;
+}
+
+.savedExpressionGroupLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .savedExpressionCard {
   display: flex;
   justify-content: space-between;
@@ -645,12 +709,28 @@ input[disabled] {
     align-items: flex-start;
   }
 
+  .historyListCard {
+    grid-template-columns: 1fr;
+  }
+
+  .historyListDeleteButton {
+    width: 100%;
+  }
+
   .segmentStateText {
     margin-top: -0.15rem;
   }
 
   .savedExpressionCard {
     flex-direction: column;
+  }
+
+  .savedExpressionGroupHeader {
+    flex-direction: column;
+  }
+
+  .savedExpressionGroupLink {
+    width: 100%;
   }
 
   .savedExpressionDeleteButton {

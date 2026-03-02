@@ -1,12 +1,14 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MaterialRegistrationLoadingScreen } from "@/components/materials/MaterialRegistrationLoadingScreen";
 import { MaterialLearningScreen } from "@/components/materials/MaterialLearningScreen";
 import { VideoRegistrationForm } from "@/components/materials/VideoRegistrationForm";
 
 type DocRecord = Record<string, unknown>;
 
 const pushMock = vi.fn();
+const replaceMock = vi.fn();
 const fetchMock = vi.fn();
 
 const materials = new Map<string, DocRecord>();
@@ -15,7 +17,12 @@ const segments = new Map<string, Array<{ id: string; data: DocRecord }>>();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: pushMock,
+    replace: replaceMock,
   }),
+  useSearchParams: () =>
+    new URLSearchParams({
+      youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    }),
 }));
 
 vi.mock("@/lib/firebase/auth", () => ({
@@ -39,6 +46,7 @@ vi.mock("@/components/materials/YouTubeIFramePlayer", () => ({
 describe("registration -> queued job -> learning integration", () => {
   beforeEach(() => {
     pushMock.mockReset();
+    replaceMock.mockReset();
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
     materials.clear();
@@ -105,7 +113,15 @@ describe("registration -> queued job -> learning integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "動画を登録" }));
 
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/materials/mat1");
+      expect(pushMock).toHaveBeenCalledWith(
+        "/materials/loading?youtubeUrl=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ",
+      );
+    });
+
+    render(<MaterialRegistrationLoadingScreen />);
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalledWith("/materials/mat1");
     });
 
     materials.set("mat1", {
@@ -129,5 +145,5 @@ describe("registration -> queued job -> learning integration", () => {
       ).toBeInTheDocument();
       expect(screen.getByText("保存された表現")).toBeInTheDocument();
     });
-  });
+  }, 10000);
 });

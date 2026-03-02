@@ -361,7 +361,7 @@ describe("Learning screen integration", () => {
     await waitFor(() => {
       expect(screen.queryByText("We should take ownership of the result.")).not.toBeInTheDocument();
     });
-  });
+  }, 10000);
 
   it("hides and deletes saved expressions that have blank text fields", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {

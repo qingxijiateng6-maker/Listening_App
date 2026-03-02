@@ -43,6 +43,7 @@ export function MaterialHistoryList() {
   const [materials, setMaterials] = useState<MaterialListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deletingMaterialId, setDeletingMaterialId] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -89,6 +90,32 @@ export function MaterialHistoryList() {
     };
   }, []);
 
+  async function handleDeleteMaterial(materialId: string): Promise<void> {
+    setDeletingMaterialId(materialId);
+    setError("");
+
+    try {
+      const authHeaders = await buildAuthenticatedRequestHeaders();
+      const response = await fetch(`/api/materials/${materialId}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as MaterialsApiResponse | null;
+        throw new Error(payload?.error ?? "登録した動画の削除に失敗しました。");
+      }
+
+      setMaterials((current) => current.filter((material) => material.materialId !== materialId));
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error ? deleteError.message : "登録した動画の削除に失敗しました。",
+      );
+    } finally {
+      setDeletingMaterialId("");
+    }
+  }
+
   if (loading) {
     return (
       <section className="historyListSection">
@@ -123,18 +150,29 @@ export function MaterialHistoryList() {
       ) : (
         <div className="historyListGrid">
           {materials.map((material) => (
-            <Link
-              key={material.materialId}
-              href={`/materials/${material.materialId}`}
-              className="historyListCard"
-            >
-              <span className="historyListCardStatus">{material.status}</span>
-              <h2>{material.title || `YouTube動画 ${material.youtubeId}`}</h2>
-              <p>{material.channel || material.youtubeUrl}</p>
-              <span className="historyListCardMeta">
-                最終更新: {formatUpdatedAt(material.updatedAt)}
-              </span>
-            </Link>
+            <article key={material.materialId} className="historyListCard">
+              <Link
+                href={`/materials/${material.materialId}`}
+                className="historyListCardLink"
+              >
+                <span className="historyListCardStatus">{material.status}</span>
+                <h2>{material.title || `YouTube動画 ${material.youtubeId}`}</h2>
+                <p>{material.channel || material.youtubeUrl}</p>
+                <span className="historyListCardMeta">
+                  最終更新: {formatUpdatedAt(material.updatedAt)}
+                </span>
+              </Link>
+              <button
+                type="button"
+                className="historyListDeleteButton"
+                onClick={() => {
+                  void handleDeleteMaterial(material.materialId);
+                }}
+                disabled={deletingMaterialId === material.materialId}
+              >
+                {deletingMaterialId === material.materialId ? "削除中..." : "削除"}
+              </button>
+            </article>
           ))}
         </div>
       )}

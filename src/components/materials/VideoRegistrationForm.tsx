@@ -2,7 +2,6 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { buildAuthenticatedRequestHeaders } from "@/lib/firebase/auth";
 import { parseYouTubeUrl } from "@/lib/youtube";
 
 type SubmitState = "idle" | "submitting";
@@ -26,31 +25,9 @@ export function VideoRegistrationForm() {
 
     setSubmitState("submitting");
     try {
-      const authHeaders = await buildAuthenticatedRequestHeaders();
-      const response = await fetch("/api/materials", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...authHeaders,
-        },
-        body: JSON.stringify({ youtubeUrl: parsed.normalizedUrl }),
-      });
-
-      const payload = (await response.json()) as {
-        error?: string;
-        materialId?: string;
-        reused?: boolean;
-      };
-
-      if (!response.ok || !payload.materialId) {
-        throw new Error(payload.error ?? "動画登録に失敗しました。");
-      }
-
-      router.push(`/materials/${payload.materialId}`);
+      router.push(`/materials/loading?youtubeUrl=${encodeURIComponent(parsed.normalizedUrl)}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "動画登録に失敗しました。");
-    } finally {
-      setSubmitState("idle");
     }
   }
 

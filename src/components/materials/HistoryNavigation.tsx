@@ -10,9 +10,9 @@ export function HistoryNavigation() {
         </span>
       </Link>
       <Link href="/expressions" className="historyNavigationCard">
-        <span className="historyNavigationTitle">登録した表現</span>
+        <span className="historyNavigationTitle">保存した表現</span>
         <span className="historyNavigationDescription">
-          自分で登録した表現の一覧ページへ移動します。
+          動画で保存した表現を一覧で確認できます。
         </span>
       </Link>
     </section>
