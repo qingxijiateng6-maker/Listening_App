@@ -20,10 +20,31 @@ function normalizeEnvValue(value: string | undefined): string {
   return trimmed;
 }
 
+function normalizePemFormatting(value: string): string {
+  const match = value.match(
+    /-----BEGIN ([A-Z ]+)-----\s*([\s\S]*?)\s*-----END \1-----/,
+  );
+
+  if (!match) {
+    return value;
+  }
+
+  const label = match[1];
+  const body = match[2].replace(/\s+/g, "");
+  if (!body) {
+    return value;
+  }
+
+  const wrappedBody = body.match(/.{1,64}/g)?.join("\n") ?? body;
+  return `-----BEGIN ${label}-----\n${wrappedBody}\n-----END ${label}-----\n`;
+}
+
 export function normalizeFirebasePrivateKey(value: string | undefined): string {
-  return normalizeEnvValue(value)
+  return normalizePemFormatting(
+    normalizeEnvValue(value)
     .replace(/\r\n/g, "\n")
-    .replace(/\\n/g, "\n");
+    .replace(/\\n/g, "\n"),
+  );
 }
 
 function getAdminConfig(): AdminConfig {

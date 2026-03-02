@@ -45,6 +45,12 @@ describe("firebase admin helpers", () => {
     ).toBe("-----BEGIN PRIVATE KEY-----\nline-1\n-----END PRIVATE KEY-----\n");
   });
 
+  it("rebuilds pem formatting when the key body is flattened into spaces", () => {
+    expect(
+      normalizeFirebasePrivateKey("-----BEGIN PRIVATE KEY----- ABCD EFGH IJKL -----END PRIVATE KEY-----"),
+    ).toBe("-----BEGIN PRIVATE KEY-----\nABCDEFGHIJKL\n-----END PRIVATE KEY-----\n");
+  });
+
   it("initializes firebase admin with normalized env values", () => {
     process.env.FIREBASE_PROJECT_ID = "  demo-project  ";
     process.env.FIREBASE_CLIENT_EMAIL = "\"firebase-adminsdk@test.example.com\"";
