@@ -85,6 +85,15 @@ describe("registration -> queued job -> learning integration", () => {
         };
       }
 
+      if (url.endsWith("/api/materials/mat1/expressions")) {
+        return {
+          ok: true,
+          json: async () => ({
+            expressions: [],
+          }),
+        };
+      }
+
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
@@ -114,11 +123,11 @@ describe("registration -> queued job -> learning integration", () => {
     render(<MaterialLearningScreen materialId="mat1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("status: ready")).toBeInTheDocument();
       expect(screen.getByText("字幕")).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: /\[1\.0s\].*take ownership and move forward.*選択中/ }),
       ).toBeInTheDocument();
+      expect(screen.getByText("保存された表現")).toBeInTheDocument();
     });
   });
 });

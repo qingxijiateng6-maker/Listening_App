@@ -23,6 +23,14 @@ export type Segment = {
   text: string;
 };
 
+export type SavedExpression = {
+  expression: string;
+  meaning: string;
+  exampleSentence: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+};
+
 export type Job = {
   type: JobType;
   materialId: string;

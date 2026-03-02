@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Material, Segment } from "@/types/domain";
 import { YouTubeIFramePlayer } from "@/components/materials/YouTubeIFramePlayer";
 
@@ -24,6 +24,35 @@ type MaterialApiResponse = {
 type SegmentsApiResponse = {
   segments: Array<Segment & { segmentId: string }>;
 };
+
+type SavedExpressionRecord = {
+  expressionId: string;
+  expression: string;
+  meaning: string;
+  exampleSentence: string;
+};
+
+type ExpressionsApiResponse = {
+  expressions: SavedExpressionRecord[];
+};
+
+function normalizeSavedExpression(record: Partial<SavedExpressionRecord>): SavedExpressionRecord {
+  return {
+    expressionId: typeof record.expressionId === "string" ? record.expressionId : "",
+    expression: typeof record.expression === "string" ? record.expression : "",
+    meaning: typeof record.meaning === "string" ? record.meaning : "",
+    exampleSentence: typeof record.exampleSentence === "string" ? record.exampleSentence : "",
+  };
+}
+
+function hasVisibleExpressionContent(record: Partial<SavedExpressionRecord>): boolean {
+  const normalized = normalizeSavedExpression(record);
+  return (
+    normalized.expression.trim().length > 0 &&
+    normalized.meaning.trim().length > 0 &&
+    normalized.exampleSentence.trim().length > 0
+  );
+}
 
 function findActiveSegmentId(segments: SegmentWithId[], currentMs: number): string | null {
   let low = 0;
@@ -48,13 +77,20 @@ function findActiveSegmentId(segments: SegmentWithId[], currentMs: number): stri
 export function MaterialLearningScreen({ materialId }: Props) {
   const [material, setMaterial] = useState<Material | null>(null);
   const [segments, setSegments] = useState<SegmentWithId[]>([]);
+  const [savedExpressions, setSavedExpressions] = useState<SavedExpressionRecord[]>([]);
   const [playerApi, setPlayerApi] = useState<PlayerApi | null>(null);
   const [currentMs, setCurrentMs] = useState<number>(0);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [expressionError, setExpressionError] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingLabel, setLoadingLabel] = useState<string>("教材データを読み込んでいます...");
-  const segmentButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [formExpression, setFormExpression] = useState<string>("");
+  const [formMeaning, setFormMeaning] = useState<string>("");
+  const [formExampleSentence, setFormExampleSentence] = useState<string>("");
+  const [isSavingExpression, setIsSavingExpression] = useState<boolean>(false);
+  const [deletingExpressionId, setDeletingExpressionId] = useState<string>("");
+  const playerSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -91,9 +127,10 @@ export function MaterialLearningScreen({ materialId }: Props) {
       setLoadingLabel("教材データを読み込んでいます...");
       try {
         setLoadingLabel("教材・字幕を取得しています...");
-        const [materialPayload, segmentsPayload] = await Promise.all([
+        const [materialPayload, segmentsPayload, expressionsPayload] = await Promise.all([
           fetchJson<MaterialApiResponse>(`/api/materials/${materialId}`),
           fetchJson<SegmentsApiResponse>(`/api/materials/${materialId}/segments`),
+          fetchJson<ExpressionsApiResponse>(`/api/materials/${materialId}/expressions`),
         ]);
 
         if (!mounted) {
@@ -105,9 +142,26 @@ export function MaterialLearningScreen({ materialId }: Props) {
           ...segment,
         }));
 
+        const normalizedExpressions = expressionsPayload.expressions.map((expression) => normalizeSavedExpression(expression));
+        const visibleExpressions = normalizedExpressions.filter((expression) => hasVisibleExpressionContent(expression));
+        const blankExpressions = normalizedExpressions.filter(
+          (expression) => expression.expressionId && !hasVisibleExpressionContent(expression),
+        );
+
         setMaterial(materialPayload.material);
         setSegments(nextSegments);
+        setSavedExpressions(visibleExpressions);
         setSelectedSegmentId(nextSegments[0]?.id ?? "");
+
+        if (blankExpressions.length > 0) {
+          void Promise.allSettled(
+            blankExpressions.map((expression) =>
+              fetch(`/api/materials/${materialId}/expressions/${expression.expressionId}`, {
+                method: "DELETE",
+              }),
+            ),
+          );
+        }
       } catch (loadError) {
         if (mounted && !(loadError instanceof DOMException && loadError.name === "AbortError")) {
           setError(loadError instanceof Error ? loadError.message : "教材取得に失敗しました。");
@@ -139,16 +193,18 @@ export function MaterialLearningScreen({ materialId }: Props) {
     () => segments.find((segment) => segment.id === activeSegmentId) ?? null,
     [activeSegmentId, segments],
   );
-
-  useEffect(() => {
-    if (!activeSegmentId) {
-      return;
-    }
-    segmentButtonRefs.current[activeSegmentId]?.scrollIntoView({
-      block: "nearest",
-      behavior: "smooth",
-    });
-  }, [activeSegmentId]);
+  const expressionMatches = useMemo(() => {
+    return Object.fromEntries(
+      savedExpressions.map((savedExpression) => {
+        const normalized = normalizeSavedExpression(savedExpression).expression.trim().toLocaleLowerCase();
+        const matches =
+          normalized.length === 0
+            ? []
+            : segments.filter((segment) => segment.text.toLocaleLowerCase().includes(normalized));
+        return [savedExpression.expressionId, matches];
+      }),
+    ) as Record<string, SegmentWithId[]>;
+  }, [savedExpressions, segments]);
 
   const handlePlayerReady = useCallback((api: PlayerApi) => {
     setPlayerApi(api);
@@ -166,21 +222,83 @@ export function MaterialLearningScreen({ materialId }: Props) {
     playerApi.play();
   }
 
+  function focusVideoArea(): void {
+    playerSectionRef.current?.scrollIntoView({
+      block: "start",
+      behavior: "smooth",
+    });
+  }
+
+  async function handleSaveExpression(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    const expression = formExpression.trim();
+    const meaning = formMeaning.trim();
+    const exampleSentence = formExampleSentence.trim();
+
+    if (!expression || !meaning || !exampleSentence) {
+      setExpressionError("表現・意味・例文をすべて入力してください。");
+      return;
+    }
+
+    setIsSavingExpression(true);
+    setExpressionError("");
+    try {
+      const response = await fetch(`/api/materials/${materialId}/expressions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          expression,
+          meaning,
+          exampleSentence,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "表現の保存に失敗しました。");
+      }
+
+      const payload = (await response.json()) as { expression: SavedExpressionRecord };
+      const normalizedExpression = normalizeSavedExpression(payload.expression);
+      if (hasVisibleExpressionContent(normalizedExpression)) {
+        setSavedExpressions((current) => [...current, normalizedExpression]);
+      }
+      setFormExpression("");
+      setFormMeaning("");
+      setFormExampleSentence("");
+    } catch (saveError) {
+      setExpressionError(saveError instanceof Error ? saveError.message : "表現の保存に失敗しました。");
+    } finally {
+      setIsSavingExpression(false);
+    }
+  }
+
+  async function handleDeleteExpression(expressionId: string): Promise<void> {
+    setDeletingExpressionId(expressionId);
+    setExpressionError("");
+    try {
+      const response = await fetch(`/api/materials/${materialId}/expressions/${expressionId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "表現の削除に失敗しました。");
+      }
+
+      setSavedExpressions((current) => current.filter((expression) => expression.expressionId !== expressionId));
+    } catch (deleteError) {
+      setExpressionError(deleteError instanceof Error ? deleteError.message : "表現の削除に失敗しました。");
+    } finally {
+      setDeletingExpressionId("");
+    }
+  }
+
   return (
     <main className="learningScreen">
-      <header className="learningScreenHeader">
-        <div>
-          <h1>学習画面</h1>
-          <p className="learningScreenLead">動画と字幕だけを使って再生位置を確認できます。</p>
-        </div>
-        <div className="learningScreenMeta">
-          <span className="learningMetaChip">materialId: {materialId}</span>
-          {material ? <span className="learningMetaChip">status: {material.status}</span> : null}
-          {material?.pipelineVersion ? (
-            <span className="learningMetaChip">pipeline: {material.pipelineVersion}</span>
-          ) : null}
-        </div>
-      </header>
       {loading ? (
         <section className="learningStateCard loading" aria-live="polite">
           <h2>読み込み中</h2>
@@ -198,18 +316,58 @@ export function MaterialLearningScreen({ materialId }: Props) {
         <div className="learningLayout">
           <section className="playerTranscriptSection">
             <div className="playerTranscriptGrid">
-              <div className="learningHeroSection playerColumn">
+              <div ref={playerSectionRef} className="learningHeroSection playerColumn">
                 <div className="learningSectionHeader">
-                  <div>
-                    <h2>動画</h2>
-                    <p>字幕と行き来しながら再生できます。</p>
-                  </div>
+                  <div />
                 </div>
                 <YouTubeIFramePlayer
                   youtubeId={material.youtubeId}
                   onApiReady={handlePlayerReady}
                   onTimeChange={handleTimeChange}
                 />
+                <div className="expressionFormPanel">
+                  <div className="learningSectionHeader compact">
+                    <div>
+                      <h3>表現を保存する</h3>
+                    </div>
+                  </div>
+                  <form className="expressionForm" onSubmit={handleSaveExpression}>
+                    <label className="expressionFieldLabel" htmlFor="expression-input">
+                      保存する表現
+                    </label>
+                    <input
+                      id="expression-input"
+                      type="text"
+                      value={formExpression}
+                      onChange={(event) => setFormExpression(event.target.value)}
+                      disabled={isSavingExpression}
+                    />
+                    <label className="expressionFieldLabel" htmlFor="meaning-input">
+                      意味
+                    </label>
+                    <input
+                      id="meaning-input"
+                      type="text"
+                      value={formMeaning}
+                      onChange={(event) => setFormMeaning(event.target.value)}
+                      disabled={isSavingExpression}
+                    />
+                    <label className="expressionFieldLabel" htmlFor="example-sentence-input">
+                      例文
+                    </label>
+                    <textarea
+                      id="example-sentence-input"
+                      className="expressionTextarea"
+                      value={formExampleSentence}
+                      onChange={(event) => setFormExampleSentence(event.target.value)}
+                      disabled={isSavingExpression}
+                      rows={4}
+                    />
+                    <button type="submit" className="primaryCtaButton" disabled={isSavingExpression}>
+                      {isSavingExpression ? "保存中..." : "保存"}
+                    </button>
+                  </form>
+                </div>
               </div>
 
               <div className="learningSection transcriptColumn">
@@ -245,9 +403,6 @@ export function MaterialLearningScreen({ materialId }: Props) {
                           key={segment.id}
                           type="button"
                           className={`segmentButton${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
-                          ref={(node) => {
-                            segmentButtonRefs.current[segment.id] = node;
-                          }}
                           onClick={() => {
                             setSelectedSegmentId(segment.id);
                             seekToSegment(segment.startMs);
@@ -255,9 +410,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
                         >
                           <span className="segmentTime">[{(segment.startMs / 1000).toFixed(1)}s]</span>
                           <span className="segmentText">{segment.text}</span>
-                          <span className="segmentStateText">
-                            {isActive ? "再生中" : isSelected ? "選択中" : "ジャンプ"}
-                          </span>
+                          <span className="segmentStateText">{isActive ? "再生中" : isSelected ? "選択中" : ""}</span>
                         </button>
                       );
                     })}
@@ -265,13 +418,13 @@ export function MaterialLearningScreen({ materialId }: Props) {
                 )}
               </div>
             </div>
-            {selectedSegment ? (
-              <div className="subtitleTapPanel">
-                <div className="learningSectionHeader compact">
-                  <div>
-                    <h3>選択中の字幕</h3>
-                    <p>{selectedSegment.text}</p>
-                  </div>
+            <div className="subtitleTapPanel">
+              <div className="learningSectionHeader compact">
+                <div>
+                  <h3>選択中の字幕</h3>
+                  <p>{selectedSegment ? selectedSegment.text : "一覧から字幕をタップすると、その位置から動画を再生できます。"}</p>
+                </div>
+                {selectedSegment ? (
                   <button
                     type="button"
                     className="secondaryActionButton"
@@ -281,14 +434,88 @@ export function MaterialLearningScreen({ materialId }: Props) {
                   >
                     この位置から再生
                   </button>
+                ) : null}
+              </div>
+              {expressionError ? (
+                <div className="learningInlineError" role="alert">
+                  {expressionError}
                 </div>
+              ) : null}
+              <div className="savedExpressionsSection">
+                <div className="learningSectionHeader compact">
+                  <div>
+                    <h3>保存された表現</h3>
+                  </div>
+                </div>
+                {savedExpressions.length === 0 ? (
+                  <div className="learningEmptyCard compact">
+                    <h3>まだ表現は保存されていません</h3>
+                    <p>動画下のフォームから、この動画で学習したい表現を追加できます。</p>
+                  </div>
+                ) : (
+                  <div className="savedExpressionsList">
+                    {savedExpressions.map((savedExpression) => {
+                      const matches = expressionMatches[savedExpression.expressionId] ?? [];
+                      return (
+                        <article key={savedExpression.expressionId} className="savedExpressionCard">
+                          <div className="savedExpressionBody">
+                            <dl className="savedExpressionDetails">
+                              <div>
+                                <dt>表現</dt>
+                                <dd>{savedExpression.expression}</dd>
+                              </div>
+                              <div>
+                                <dt>意味</dt>
+                                <dd>{savedExpression.meaning}</dd>
+                              </div>
+                              <div>
+                                <dt>例文</dt>
+                                <dd>{savedExpression.exampleSentence}</dd>
+                              </div>
+                            </dl>
+                            <div className="savedExpressionScenes">
+                              <span className="savedExpressionScenesTitle">この動画で使われているシーン</span>
+                              {matches.length === 0 ? (
+                                <p className="savedExpressionSceneEmpty">
+                                  この動画の字幕では、完全一致するシーンをまだ見つけられていません。
+                                </p>
+                              ) : (
+                                <div className="savedExpressionSceneList">
+                                  {matches.map((segment) => (
+                                    <button
+                                      key={`${savedExpression.expressionId}-${segment.id}`}
+                                      type="button"
+                                      className="savedExpressionSceneButton"
+                                      onClick={() => {
+                                        setSelectedSegmentId(segment.id);
+                                        seekToSegment(segment.startMs);
+                                        focusVideoArea();
+                                      }}
+                                    >
+                                      [{(segment.startMs / 1000).toFixed(1)}s] {segment.text}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="secondaryActionButton savedExpressionDeleteButton"
+                            onClick={() => {
+                              void handleDeleteExpression(savedExpression.expressionId);
+                            }}
+                            disabled={deletingExpressionId === savedExpression.expressionId}
+                          >
+                            {deletingExpressionId === savedExpression.expressionId ? "削除中..." : "削除"}
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="learningEmptyCard">
-                <h3>字幕を選択してください</h3>
-                <p>一覧から字幕をタップすると、その位置から動画を再生できます。</p>
-              </div>
-            )}
+            </div>
           </section>
         </div>
       ) : null}

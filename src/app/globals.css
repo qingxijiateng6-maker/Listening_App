@@ -318,12 +318,16 @@ label {
   margin-bottom: 0.4rem;
 }
 
-input[type="url"] {
+input[type="url"],
+input[type="text"],
+textarea {
   width: 100%;
   padding: 0.6rem 0.7rem;
   border: 1px solid #b6c2d2;
   border-radius: 8px;
   margin-bottom: 0.8rem;
+  font: inherit;
+  resize: vertical;
 }
 
 button {
@@ -405,10 +409,98 @@ input[disabled] {
 }
 
 .subtitleTapPanel {
+  display: grid;
+  gap: 1rem;
   padding: 0.95rem;
   border-radius: 12px;
   background: #f7f9fd;
   border: 1px solid #d9e0ea;
+}
+
+.expressionFormPanel {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e1e7f0;
+}
+
+.expressionForm {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.expressionFieldLabel {
+  font-weight: 700;
+  color: #29415f;
+}
+
+.expressionTextarea {
+  min-height: 108px;
+}
+
+.savedExpressionsSection,
+.savedExpressionsList {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.savedExpressionCard {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.95rem;
+  border-radius: 12px;
+  border: 1px solid #d6deea;
+  background: #ffffff;
+}
+
+.savedExpressionBody,
+.savedExpressionDetails,
+.savedExpressionScenes,
+.savedExpressionSceneList {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.savedExpressionBody {
+  flex: 1 1 auto;
+}
+
+.savedExpressionDetails {
+  margin: 0;
+}
+
+.savedExpressionDetails div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.savedExpressionDetails dt,
+.savedExpressionScenesTitle {
+  font-weight: 800;
+  color: #1d3552;
+}
+
+.savedExpressionDetails dd,
+.savedExpressionSceneEmpty {
+  margin: 0;
+  color: #43556c;
+  line-height: 1.55;
+}
+
+.savedExpressionSceneButton {
+  justify-content: flex-start;
+  text-align: left;
+  background: #eef3fa;
+  color: #1b2430;
+  border: 1px solid #d0daea;
+}
+
+.savedExpressionDeleteButton {
+  flex: 0 0 auto;
+  min-width: 88px;
 }
 
 .youtubePlayerContainer {
@@ -555,6 +647,14 @@ input[disabled] {
 
   .segmentStateText {
     margin-top: -0.15rem;
+  }
+
+  .savedExpressionCard {
+    flex-direction: column;
+  }
+
+  .savedExpressionDeleteButton {
+    width: 100%;
   }
 
   .authTopRight {
