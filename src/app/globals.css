@@ -20,6 +20,25 @@ main {
   padding: 2rem 1rem;
 }
 
+.materialsPage {
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+  --materials-text-primary: #141414;
+  --materials-text-secondary: #3a3a3a;
+  --materials-text-muted: #6a6a6a;
+  --materials-chip-bg: rgba(20, 20, 20, 0.08);
+  --materials-chip-border: rgba(20, 20, 20, 0.16);
+}
+
+.materialsPage::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(circle at 50% 30%, #e9d5ff 0%, #c4b5fd 25%, #a78bfa 50%, #7c3aed 75%, #5b21b6 100%);
+}
+
 .homePage {
   display: grid;
   gap: 1.25rem;
@@ -122,17 +141,21 @@ main {
 .historyListSection {
   display: grid;
   gap: 1rem;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .historyListHeader h1,
 .historyEmptyCard h2,
 .historyListCard h2 {
   margin: 0;
+  color: var(--materials-text-primary);
 }
 
 .historyListHeader p {
   margin: 0.4rem 0 0;
-  color: #58677b;
+  color: var(--materials-text-secondary);
 }
 
 .historyListGrid {
@@ -146,8 +169,8 @@ main {
   gap: 0.55rem;
   padding: 1rem;
   border-radius: 14px;
-  border: 1px solid #d9e0ea;
-  background: #ffffff;
+  border: 1px solid rgba(27, 36, 48, 0.08);
+  background: transparent;
   text-decoration: none;
   color: inherit;
 }
@@ -171,8 +194,9 @@ main {
   width: fit-content;
   padding: 0.28rem 0.6rem;
   border-radius: 999px;
-  background: #e8eef8;
-  color: #365072;
+  background: var(--materials-chip-bg);
+  border: 1px solid var(--materials-chip-border);
+  color: var(--materials-text-primary);
   font-size: 0.8rem;
   font-weight: 700;
 }
@@ -181,10 +205,11 @@ main {
 .historyEmptyCard p,
 .historyListCardMeta {
   margin: 0;
+  color: var(--materials-text-secondary);
 }
 
 .historyListCardMeta {
-  color: #58677b;
+  color: var(--materials-text-muted);
   font-size: 0.88rem;
 }
 
