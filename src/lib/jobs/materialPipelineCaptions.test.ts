@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildYtDlpVideoInfoArgs,
   createUnavailableCaptionProvider,
@@ -7,6 +7,7 @@ import {
   parseJson3Captions,
   parseTtmlCaptions,
   parseWebVttCaptions,
+  resolveYtDlpInvocations,
 } from "@/lib/jobs/materialPipelineCaptions";
 
 describe("formatCaptionCues", () => {
@@ -121,6 +122,22 @@ describe("buildYtDlpVideoInfoArgs", () => {
   });
 });
 
+describe("resolveYtDlpInvocations", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("adds python fallbacks when configured command is python3 -m yt_dlp", () => {
+    vi.stubEnv("YT_DLP_PATH", "python3 -m yt_dlp");
+
+    expect(resolveYtDlpInvocations()).toEqual([
+      { command: "python3", args: ["-m", "yt_dlp"] },
+      { command: "yt-dlp", args: [] },
+      { command: "python", args: ["-m", "yt_dlp"] },
+      { command: "py", args: ["-m", "yt_dlp"] },
+    ]);
+  });
+});
 describe("createUnavailableCaptionProvider", () => {
   it("returns an explicit unavailable result until a real YouTube captions fetcher is wired in", async () => {
     const provider = createUnavailableCaptionProvider();
@@ -139,3 +156,7 @@ describe("createUnavailableCaptionProvider", () => {
     });
   });
 });
+
+
+
+
