@@ -146,6 +146,14 @@ async function runCaptions(materialId: string, pipelineVersion: string): Promise
   });
 
   if (captions.status !== "fetched") {
+    if (captions.reason === "captions_not_found") {
+      await writeState(materialId, pipelineVersion, {
+        ...state,
+        captions,
+        updatedAt: nowTs(),
+      });
+      return;
+    }
     throw new Error(captions.message);
   }
 

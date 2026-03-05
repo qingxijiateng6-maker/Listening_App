@@ -74,6 +74,13 @@ type Json3Captions = {
   events?: Json3Event[];
 };
 
+type TimedTextTrack = {
+  languageCode: string;
+  languageName: string;
+  kind?: string;
+  name?: string;
+};
+
 const DEFAULT_YT_DLP_COMMAND = "yt-dlp";
 const PYTHON_YT_DLP_ARGS = ["-m", "yt_dlp"] as const;
 const DEFAULT_YT_DLP_TIMEOUT_MS = 120_000;
@@ -335,6 +342,109 @@ function toCaptionMetadata(videoInfo: YtDlpVideoInfo): CaptionMetadata {
   };
 }
 
+function parseTimedTextSeconds(raw: string | undefined): number | null {
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return Math.round(parsed * 1000);
+}
+
+function parseXmlAttributes(rawAttributes: string): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  const attributePattern = /([a-zA-Z0-9_:-]+)="([^"]*)"/g;
+  let match: RegExpExecArray | null = attributePattern.exec(rawAttributes);
+  while (match) {
+    const key = match[1] ?? "";
+    const value = decodeHtmlEntities(match[2] ?? "");
+    if (key) {
+      attributes[key] = value;
+    }
+    match = attributePattern.exec(rawAttributes);
+  }
+  return attributes;
+}
+
+function parseTimedTextTrackList(rawXml: string): TimedTextTrack[] {
+  const tracks: TimedTextTrack[] = [];
+  const trackPattern = /<track\b([^>]*?)\/?>/gi;
+  let match: RegExpExecArray | null = trackPattern.exec(rawXml);
+
+  while (match) {
+    const attributes = parseXmlAttributes(match[1] ?? "");
+    const languageCode = attributes.lang_code?.trim() ?? "";
+    if (!languageCode) {
+      match = trackPattern.exec(rawXml);
+      continue;
+    }
+
+    tracks.push({
+      languageCode,
+      languageName: attributes.lang_translated ?? attributes.lang_original ?? languageCode,
+      kind: attributes.kind?.trim() || undefined,
+      name: attributes.name?.trim() || undefined,
+    });
+
+    match = trackPattern.exec(rawXml);
+  }
+
+  return tracks;
+}
+
+function selectTimedTextTrack(tracks: TimedTextTrack[]): TimedTextTrack | null {
+  if (tracks.length === 0) {
+    return null;
+  }
+
+  const withPriority = tracks
+    .map((track) => ({
+      track,
+      languagePriority: resolveLanguagePriority(track.languageCode),
+      kindPriority: track.kind === "asr" ? 1 : 0,
+    }))
+    .sort((left, right) => {
+      if (left.languagePriority !== right.languagePriority) {
+        return left.languagePriority - right.languagePriority;
+      }
+      if (left.kindPriority !== right.kindPriority) {
+        return left.kindPriority - right.kindPriority;
+      }
+      return left.track.languageCode.localeCompare(right.track.languageCode);
+    });
+
+  return withPriority[0]?.track ?? null;
+}
+
+function parseTimedTextCaptions(rawXml: string): CaptionCue[] {
+  const cues: CaptionCue[] = [];
+  const textPattern = /<text\b([^>]*)>([\s\S]*?)<\/text>/gi;
+  let match: RegExpExecArray | null = textPattern.exec(rawXml);
+
+  while (match) {
+    const attributes = parseXmlAttributes(match[1] ?? "");
+    const startMs = parseTimedTextSeconds(attributes.start);
+    const durMs = parseTimedTextSeconds(attributes.dur) ?? 0;
+    const body = normalizeCaptionText((match[2] ?? "").replace(/<br\s*\/?>/gi, " "));
+
+    if (startMs !== null && durMs > 0 && body) {
+      cues.push({
+        startMs,
+        endMs: startMs + durMs,
+        text: body,
+      });
+    }
+
+    match = textPattern.exec(rawXml);
+  }
+
+  return cues;
+}
+
 export function parseJson3Captions(rawJson: string): CaptionCue[] {
   const parsed = JSON.parse(stripBom(rawJson)) as Json3Captions;
   return (parsed.events ?? [])
@@ -574,6 +684,79 @@ async function downloadCaptionPayload(url: string): Promise<{ text: string; cont
   throw lastError ?? new Error("Caption download failed.");
 }
 
+function buildTimedTextTrackListUrl(youtubeId: string): string {
+  const url = new URL("https://www.youtube.com/api/timedtext");
+  url.searchParams.set("type", "list");
+  url.searchParams.set("v", youtubeId);
+  return url.toString();
+}
+
+function buildTimedTextCaptionUrl(youtubeId: string, track: TimedTextTrack): string {
+  const url = new URL("https://www.youtube.com/api/timedtext");
+  url.searchParams.set("v", youtubeId);
+  url.searchParams.set("lang", track.languageCode);
+  if (track.kind) {
+    url.searchParams.set("kind", track.kind);
+  }
+  if (track.name) {
+    url.searchParams.set("name", track.name);
+  }
+  return url.toString();
+}
+
+async function fetchTimedText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch YouTube timedtext (${response.status}).`);
+  }
+
+  return response.text();
+}
+
+export function createTimedTextCaptionProvider(): CaptionProvider {
+  return {
+    async fetchCaptions(input) {
+      try {
+        const trackListXml = await fetchTimedText(buildTimedTextTrackListUrl(input.youtubeId));
+        const tracks = parseTimedTextTrackList(trackListXml);
+        const selectedTrack = selectTimedTextTrack(tracks);
+        if (!selectedTrack) {
+          return {
+            status: "unavailable",
+            source: "youtube_captions",
+            reason: "captions_not_found",
+            message: "No YouTube captions were available for this video.",
+          };
+        }
+
+        const captionsXml = await fetchTimedText(buildTimedTextCaptionUrl(input.youtubeId, selectedTrack));
+        const cues = parseTimedTextCaptions(captionsXml);
+        if (cues.length === 0) {
+          return {
+            status: "unavailable",
+            source: "youtube_captions",
+            reason: "captions_not_found",
+            message: "Downloaded YouTube captions were empty.",
+          };
+        }
+
+        return {
+          status: "fetched",
+          source: "youtube_captions",
+          cues,
+        };
+      } catch (error) {
+        return {
+          status: "unavailable",
+          source: "youtube_captions",
+          reason: "captions_provider_failed",
+          message: error instanceof Error ? error.message : "YouTube timedtext failed to fetch captions.",
+        };
+      }
+    },
+  };
+}
+
 export function createYtDlpCaptionProvider(): CaptionProvider {
   return {
     async fetchCaptions(input) {
@@ -647,10 +830,29 @@ export function createYtDlpCaptionProvider(): CaptionProvider {
 }
 
 export function getMaterialPipelineCaptionProvider(): CaptionProvider {
-  if (!getYtDlpCommand()) {
-    return createUnavailableCaptionProvider();
-  }
-  return createYtDlpCaptionProvider();
+  const ytDlpProvider = createYtDlpCaptionProvider();
+  const timedTextProvider = createTimedTextCaptionProvider();
+
+  return {
+    async fetchCaptions(input) {
+      const ytDlpResult = await ytDlpProvider.fetchCaptions(input);
+      if (ytDlpResult.status === "fetched") {
+        return ytDlpResult;
+      }
+
+      const timedTextResult = await timedTextProvider.fetchCaptions(input);
+      if (timedTextResult.status === "fetched") {
+        return timedTextResult;
+      }
+
+      return {
+        status: "unavailable",
+        source: "youtube_captions",
+        reason: "captions_provider_failed",
+        message: `${ytDlpResult.message} | ${timedTextResult.message}`,
+      };
+    },
+  };
 }
 
 

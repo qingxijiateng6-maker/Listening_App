@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const certMock = vi.fn((value: unknown) => value);
-const initializeAppMock = vi.fn((_value: unknown) => ({ name: "admin-app" }));
+const initializeAppMock = vi.fn(() => ({ name: "admin-app" }));
 const getAppsMock = vi.fn();
-const getAuthMock = vi.fn((_value: unknown) => ({ kind: "auth" }));
-const getFirestoreMock = vi.fn((_value: unknown) => ({ kind: "firestore" }));
+const getAuthMock = vi.fn(() => ({ kind: "auth" }));
+const getFirestoreMock = vi.fn(() => ({ kind: "firestore" }));
 
 vi.mock("firebase-admin/app", () => ({
   cert: (value: unknown) => certMock(value),

@@ -5,6 +5,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Listening App",
   description: "C1/C2 listening practice app scaffold",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({
