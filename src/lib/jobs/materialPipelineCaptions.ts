@@ -74,12 +74,93 @@ type Json3Captions = {
   events?: Json3Event[];
 };
 
-const YT_DLP_COMMAND = process.env.YT_DLP_PATH?.trim() || "yt-dlp";
-const YT_DLP_TIMEOUT_MS = Number.parseInt(process.env.YT_DLP_TIMEOUT_MS ?? "120000", 10);
-const YT_DLP_SUB_LANGS = process.env.YT_DLP_SUB_LANGS?.trim() || "en.*,en";
+const DEFAULT_YT_DLP_COMMAND = "yt-dlp";
+const DEFAULT_YT_DLP_TIMEOUT_MS = 120_000;
+const DEFAULT_CAPTION_FETCH_TIMEOUT_MS = 15_000;
+const DEFAULT_CAPTION_FETCH_RETRIES = 2;
+const MAX_CAPTION_PAYLOAD_BYTES = 5 * 1024 * 1024;
+const DEFAULT_YT_DLP_SUB_LANGS = "en.*,en";
+const DEFAULT_YT_DLP_RETRIES = 3;
+const DEFAULT_YT_DLP_EXTRACTOR_ARGS = "youtube:player_client=tv,android,web";
+const DEFAULT_YT_DLP_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
+
+function readEnvString(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function readEnvInt(name: string, fallback: number): number {
+  const rawValue = readEnvString(name);
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function getYtDlpCommand(): string {
+  return readEnvString("YT_DLP_PATH") ?? DEFAULT_YT_DLP_COMMAND;
+}
+
+function getYtDlpTimeoutMs(): number {
+  return readEnvInt("YT_DLP_TIMEOUT_MS", DEFAULT_YT_DLP_TIMEOUT_MS);
+}
+
+function getCaptionFetchTimeoutMs(): number {
+  return readEnvInt("YT_DLP_CAPTION_FETCH_TIMEOUT_MS", DEFAULT_CAPTION_FETCH_TIMEOUT_MS);
+}
+
+function getCaptionFetchRetries(): number {
+  return readEnvInt("YT_DLP_CAPTION_FETCH_RETRIES", DEFAULT_CAPTION_FETCH_RETRIES);
+}
+
+function getYtDlpSubLangs(): string {
+  return readEnvString("YT_DLP_SUB_LANGS") ?? DEFAULT_YT_DLP_SUB_LANGS;
+}
+
+function getYtDlpRetries(): number {
+  return readEnvInt("YT_DLP_RETRIES", DEFAULT_YT_DLP_RETRIES);
+}
+
+function getYtDlpExtractorArgs(): string {
+  return readEnvString("YT_DLP_EXTRACTOR_ARGS") ?? DEFAULT_YT_DLP_EXTRACTOR_ARGS;
+}
+
+function getYtDlpUserAgent(): string | undefined {
+  return readEnvString("YT_DLP_USER_AGENT") ?? DEFAULT_YT_DLP_USER_AGENT;
+}
+
+function getYtDlpCookiesPath(): string | undefined {
+  return readEnvString("YT_DLP_COOKIES_PATH");
+}
+
+function getYtDlpCookiesFromBrowser(): string | undefined {
+  return readEnvString("YT_DLP_COOKIES_FROM_BROWSER");
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
 
 function normalizeCaptionText(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return decodeHtmlEntities(
+    text
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[\u0000-\u001F\u007F]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }
 
 function buildSegmentId(index: number): string {
@@ -88,18 +169,51 @@ function buildSegmentId(index: number): string {
 
 function execFileAsync(command: string, args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { cwd, timeout: YT_DLP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(stdout);
-    });
+    execFile(
+      command,
+      args,
+      { cwd, timeout: getYtDlpTimeoutMs(), maxBuffer: 16 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          const errorText = (stderr || error.message || "").trim();
+          reject(new Error(errorText || "yt-dlp command failed."));
+          return;
+        }
+        resolve(stdout);
+      },
+    );
   });
 }
 
+function stripBom(text: string): string {
+  return text.replace(/^\uFEFF/, "");
+}
+
+function parseTimestampToMs(raw: string): number | null {
+  const value = raw.trim().replace(",", ".");
+  const parts = value.split(":");
+  if (parts.length < 2 || parts.length > 3) {
+    return null;
+  }
+
+  const secondsPart = parts[parts.length - 1] ?? "0";
+  const minutesPart = parts[parts.length - 2] ?? "0";
+  const hoursPart = parts.length === 3 ? (parts[0] ?? "0") : "0";
+
+  const seconds = Number.parseFloat(secondsPart);
+  const minutes = Number.parseInt(minutesPart, 10);
+  const hours = Number.parseInt(hoursPart, 10);
+  if (!Number.isFinite(seconds) || !Number.isFinite(minutes) || !Number.isFinite(hours)) {
+    return null;
+  }
+
+  const millis = (hours * 3600 + minutes * 60 + seconds) * 1000;
+  return Number.isFinite(millis) ? Math.max(0, Math.round(millis)) : null;
+}
+
 function resolveLanguagePriority(languageCode: string): number {
-  const patterns = YT_DLP_SUB_LANGS.split(",")
+  const patterns = getYtDlpSubLangs()
+    .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
 
@@ -118,6 +232,22 @@ function resolveLanguagePriority(languageCode: string): number {
   return Number.MAX_SAFE_INTEGER;
 }
 
+function resolveTrackExtPriority(ext: string | undefined): number {
+  const normalized = (ext ?? "").toLowerCase();
+  switch (normalized) {
+    case "json3":
+      return 0;
+    case "srv3":
+      return 1;
+    case "vtt":
+      return 2;
+    case "ttml":
+      return 3;
+    default:
+      return 100;
+  }
+}
+
 function selectCaptionTrack(
   tracksByLanguage: Record<string, YtDlpSubtitleTrack[]> | undefined,
 ): { languageCode: string; track: YtDlpSubtitleTrack } | null {
@@ -128,13 +258,17 @@ function selectCaptionTrack(
   const candidates = Object.entries(tracksByLanguage)
     .flatMap(([languageCode, tracks]) =>
       tracks
-        .filter((track) => track.ext === "json3" && typeof track.url === "string" && track.url.length > 0)
+        .filter((track) => typeof track.url === "string" && track.url.length > 0)
         .map((track) => ({ languageCode, track })),
     )
     .sort((left, right) => {
       const priorityDiff = resolveLanguagePriority(left.languageCode) - resolveLanguagePriority(right.languageCode);
       if (priorityDiff !== 0) {
         return priorityDiff;
+      }
+      const extDiff = resolveTrackExtPriority(left.track.ext) - resolveTrackExtPriority(right.track.ext);
+      if (extDiff !== 0) {
+        return extDiff;
       }
       return left.languageCode.localeCompare(right.languageCode);
     });
@@ -154,7 +288,7 @@ function toCaptionMetadata(videoInfo: YtDlpVideoInfo): CaptionMetadata {
 }
 
 export function parseJson3Captions(rawJson: string): CaptionCue[] {
-  const parsed = JSON.parse(rawJson) as Json3Captions;
+  const parsed = JSON.parse(stripBom(rawJson)) as Json3Captions;
   return (parsed.events ?? [])
     .map((event) => {
       const text = normalizeCaptionText(
@@ -173,6 +307,100 @@ export function parseJson3Captions(rawJson: string): CaptionCue[] {
       };
     })
     .filter((cue) => cue.text.length > 0 && cue.endMs > cue.startMs);
+}
+
+export function parseWebVttCaptions(rawVtt: string): CaptionCue[] {
+  const lines = stripBom(rawVtt).replace(/\r/g, "").split("\n");
+  const cues: CaptionCue[] = [];
+
+  let lineIndex = 0;
+  while (lineIndex < lines.length) {
+    let line = lines[lineIndex]?.trim() ?? "";
+    if (!line || line.startsWith("WEBVTT") || line.startsWith("NOTE") || line === "STYLE" || line === "REGION") {
+      lineIndex += 1;
+      continue;
+    }
+
+    if (!line.includes("-->")) {
+      lineIndex += 1;
+      line = lines[lineIndex]?.trim() ?? "";
+    }
+
+    if (!line.includes("-->")) {
+      lineIndex += 1;
+      continue;
+    }
+
+    const [startRaw, endRawWithSettings = ""] = line.split("-->");
+    const startMs = parseTimestampToMs(startRaw);
+    const endMs = parseTimestampToMs(endRawWithSettings.trim().split(/\s+/)[0] ?? "");
+
+    lineIndex += 1;
+    const textLines: string[] = [];
+    while (lineIndex < lines.length && (lines[lineIndex] ?? "").trim().length > 0) {
+      textLines.push(lines[lineIndex] ?? "");
+      lineIndex += 1;
+    }
+
+    if (startMs === null || endMs === null || endMs <= startMs) {
+      lineIndex += 1;
+      continue;
+    }
+
+    const text = normalizeCaptionText(textLines.join(" "));
+    if (!text) {
+      lineIndex += 1;
+      continue;
+    }
+
+    cues.push({ startMs, endMs, text });
+    lineIndex += 1;
+  }
+
+  return cues;
+}
+
+export function parseTtmlCaptions(rawTtml: string): CaptionCue[] {
+  const cues: CaptionCue[] = [];
+  const content = stripBom(rawTtml);
+  const nodePattern = /<p\b([^>]*)>([\s\S]*?)<\/p>/gi;
+  let match: RegExpExecArray | null = nodePattern.exec(content);
+  while (match) {
+    const attrs = match[1] ?? "";
+    const body = match[2] ?? "";
+    const beginMatch = attrs.match(/\bbegin="([^"]+)"/i);
+    const endMatch = attrs.match(/\bend="([^"]+)"/i);
+    const durMatch = attrs.match(/\bdur="([^"]+)"/i);
+
+    const startMs = beginMatch ? parseTimestampToMs(beginMatch[1] ?? "") : null;
+    const endMs = endMatch
+      ? parseTimestampToMs(endMatch[1] ?? "")
+      : durMatch && startMs !== null
+        ? startMs + (parseTimestampToMs(durMatch[1] ?? "") ?? 0)
+        : null;
+
+    const text = normalizeCaptionText(body.replace(/<br\s*\/?>/gi, " "));
+    if (startMs !== null && endMs !== null && endMs > startMs && text) {
+      cues.push({ startMs, endMs, text });
+    }
+
+    match = nodePattern.exec(content);
+  }
+  return cues;
+}
+
+export function parseCaptionPayload(rawText: string, contentType: string, extensionHint?: string): CaptionCue[] {
+  const normalizedContentType = contentType.toLowerCase();
+  const normalizedExt = (extensionHint ?? "").toLowerCase();
+
+  if (normalizedExt === "json3" || normalizedContentType.includes("json")) {
+    return parseJson3Captions(rawText);
+  }
+  if (normalizedExt === "ttml" || normalizedContentType.includes("ttml") || normalizedContentType.includes("xml")) {
+    return parseTtmlCaptions(rawText);
+  }
+
+  return parseWebVttCaptions(rawText);
 }
 
 export function formatCaptionCues(cues: CaptionCue[]): FormattedSegment[] {
@@ -211,20 +439,98 @@ export function createUnavailableCaptionProvider(): CaptionProvider {
   };
 }
 
+export function buildYtDlpVideoInfoArgs(youtubeUrl: string): string[] {
+  const args = [
+    "--skip-download",
+    "--dump-single-json",
+    "--write-subs",
+    "--write-auto-subs",
+    "--sub-langs",
+    getYtDlpSubLangs(),
+    "--sub-format",
+    "json3/srv3/vtt/ttml",
+    "--no-warnings",
+    "--no-playlist",
+    "--ignore-no-formats-error",
+    "--retries",
+    String(getYtDlpRetries()),
+    "--extractor-retries",
+    String(getYtDlpRetries()),
+    "--extractor-args",
+    getYtDlpExtractorArgs(),
+    "--add-header",
+    "Accept-Language:en-US,en;q=0.9",
+  ];
+
+  const userAgent = getYtDlpUserAgent();
+  if (userAgent) {
+    args.push("--user-agent", userAgent);
+  }
+
+  const cookiesPath = getYtDlpCookiesPath();
+  const cookiesFromBrowser = getYtDlpCookiesFromBrowser();
+
+  if (cookiesPath) {
+    args.push("--cookies", cookiesPath);
+  } else if (cookiesFromBrowser) {
+    args.push("--cookies-from-browser", cookiesFromBrowser);
+  }
+
+  args.push(youtubeUrl);
+  return args;
+}
+
+async function downloadCaptionPayload(url: string): Promise<{ text: string; contentType: string }> {
+  const parsedUrl = new URL(url);
+  if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+    throw new Error("Caption URL has an unsupported protocol.");
+  }
+
+  const retries = getCaptionFetchRetries();
+  let attempt = 0;
+  let lastError: Error | null = null;
+
+  while (attempt <= retries) {
+    attempt += 1;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), getCaptionFetchTimeoutMs());
+
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) {
+        if ((response.status === 429 || response.status >= 500) && attempt <= retries) {
+          continue;
+        }
+        throw new Error(`Failed to download YouTube captions (${response.status}).`);
+      }
+
+      const payload = await response.text();
+      if (Buffer.byteLength(payload, "utf8") > MAX_CAPTION_PAYLOAD_BYTES) {
+        throw new Error("Downloaded YouTube captions are too large to process safely.");
+      }
+
+      return {
+        text: payload,
+        contentType: response.headers.get("content-type") ?? "",
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Caption download failed.");
+      if (attempt > retries) {
+        break;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw lastError ?? new Error("Caption download failed.");
+}
+
 export function createYtDlpCaptionProvider(): CaptionProvider {
   return {
     async fetchCaptions(input) {
       try {
-        const stdout = await execFileAsync(
-          YT_DLP_COMMAND,
-          [
-            "--skip-download",
-            "--dump-single-json",
-            "--no-warnings",
-            input.youtubeUrl,
-          ],
-          process.cwd(),
-        );
+        const stdout = await execFileAsync(getYtDlpCommand(), buildYtDlpVideoInfoArgs(input.youtubeUrl), process.cwd());
 
         const videoInfo = JSON.parse(stdout) as YtDlpVideoInfo;
         const selectedTrack =
@@ -239,18 +545,8 @@ export function createYtDlpCaptionProvider(): CaptionProvider {
           };
         }
 
-        const captionResponse = await fetch(selectedTrack.track.url);
-        if (!captionResponse.ok) {
-          return {
-            status: "unavailable",
-            source: "youtube_captions",
-            reason: "captions_provider_failed",
-            message: `Failed to download YouTube captions (${captionResponse.status}).`,
-          };
-        }
-
-        const captionJson = await captionResponse.text();
-        const cues = parseJson3Captions(captionJson);
+        const downloaded = await downloadCaptionPayload(selectedTrack.track.url);
+        const cues = parseCaptionPayload(downloaded.text, downloaded.contentType, selectedTrack.track.ext);
         if (cues.length === 0) {
           return {
             status: "unavailable",
@@ -279,7 +575,7 @@ export function createYtDlpCaptionProvider(): CaptionProvider {
 }
 
 export function getMaterialPipelineCaptionProvider(): CaptionProvider {
-  if (!YT_DLP_COMMAND) {
+  if (!getYtDlpCommand()) {
     return createUnavailableCaptionProvider();
   }
   return createYtDlpCaptionProvider();
