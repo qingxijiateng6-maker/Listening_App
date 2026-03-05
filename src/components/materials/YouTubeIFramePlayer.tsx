@@ -18,6 +18,7 @@ declare global {
         getCurrentTime: () => number;
         seekTo: (seconds: number, allowSeekAhead: boolean) => void;
         playVideo: () => void;
+        destroy: () => void;
       };
     };
     onYouTubeIframeAPIReady?: () => void;
@@ -45,11 +46,12 @@ function loadYouTubeApiScript(): Promise<void> {
     return scriptLoadingPromise;
   }
 
-  scriptLoadingPromise = new Promise<void>((resolve) => {
+  scriptLoadingPromise = new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
     script.src = "https://www.youtube.com/iframe_api";
     script.async = true;
     window.onYouTubeIframeAPIReady = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load YouTube IFrame API."));
     document.body.appendChild(script);
   });
 
@@ -62,26 +64,31 @@ export function YouTubeIFramePlayer({ youtubeId, onTimeChange, onApiReady }: Pro
   useEffect(() => {
     let cancelled = false;
     let intervalId: number | null = null;
+    const containerElement = containerRef.current;
     let player:
       | {
           getCurrentTime: () => number;
           seekTo: (seconds: number, allowSeekAhead: boolean) => void;
           playVideo: () => void;
+          destroy: () => void;
         }
       | undefined;
 
     async function setupPlayer() {
       await loadYouTubeApiScript();
-      if (cancelled || !containerRef.current || !window.YT?.Player) {
+      if (cancelled || !containerElement || !window.YT?.Player) {
         return;
       }
 
-      player = new window.YT.Player(containerRef.current, {
+      containerElement.innerHTML = "";
+      player = new window.YT.Player(containerElement, {
         videoId: youtubeId,
         playerVars: {
+          enablejsapi: 1,
           playsinline: 1,
           rel: 0,
           modestbranding: 1,
+          origin: window.location.origin,
         },
         events: {
           onReady: () => {
@@ -113,6 +120,10 @@ export function YouTubeIFramePlayer({ youtubeId, onTimeChange, onApiReady }: Pro
       if (intervalId !== null) {
         window.clearInterval(intervalId);
       }
+      if (player) {
+        player.destroy();
+      }
+      containerElement?.replaceChildren();
     };
   }, [onApiReady, onTimeChange, youtubeId]);
 
