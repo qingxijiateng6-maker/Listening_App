@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+﻿import { execFile } from "node:child_process";
 
 export type CaptionCue = {
   startMs: number;
@@ -75,6 +75,7 @@ type Json3Captions = {
 };
 
 const DEFAULT_YT_DLP_COMMAND = "yt-dlp";
+const PYTHON_YT_DLP_ARGS = ["-m", "yt_dlp"] as const;
 const DEFAULT_YT_DLP_TIMEOUT_MS = 120_000;
 const DEFAULT_CAPTION_FETCH_TIMEOUT_MS = 15_000;
 const DEFAULT_CAPTION_FETCH_RETRIES = 2;
@@ -84,6 +85,11 @@ const DEFAULT_YT_DLP_RETRIES = 3;
 const DEFAULT_YT_DLP_EXTRACTOR_ARGS = "youtube:player_client=tv,android,web";
 const DEFAULT_YT_DLP_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
+
+type CommandInvocation = {
+  command: string;
+  args: string[];
+};
 
 function readEnvString(name: string): string | undefined {
   const value = process.env[name]?.trim();
@@ -106,6 +112,48 @@ function readEnvInt(name: string, fallback: number): number {
 
 function getYtDlpCommand(): string {
   return readEnvString("YT_DLP_PATH") ?? DEFAULT_YT_DLP_COMMAND;
+}
+
+function splitCommandString(commandText: string): string[] {
+  return commandText
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+function pushUniqueInvocation(invocations: CommandInvocation[], candidate: CommandInvocation): void {
+  if (!candidate.command) {
+    return;
+  }
+
+  const exists = invocations.some(
+    (invocation) =>
+      invocation.command === candidate.command &&
+      invocation.args.length === candidate.args.length &&
+      invocation.args.every((arg, index) => arg === candidate.args[index]),
+  );
+  if (!exists) {
+    invocations.push(candidate);
+  }
+}
+
+export function resolveYtDlpInvocations(): CommandInvocation[] {
+  const configuredParts = splitCommandString(getYtDlpCommand());
+  const invocations: CommandInvocation[] = [];
+
+  if (configuredParts.length > 0) {
+    pushUniqueInvocation(invocations, {
+      command: configuredParts[0] ?? "",
+      args: configuredParts.slice(1),
+    });
+  }
+
+  pushUniqueInvocation(invocations, { command: DEFAULT_YT_DLP_COMMAND, args: [] });
+  pushUniqueInvocation(invocations, { command: "python", args: [...PYTHON_YT_DLP_ARGS] });
+  pushUniqueInvocation(invocations, { command: "py", args: [...PYTHON_YT_DLP_ARGS] });
+  pushUniqueInvocation(invocations, { command: "python3", args: [...PYTHON_YT_DLP_ARGS] });
+
+  return invocations;
 }
 
 function getYtDlpTimeoutMs(): number {
@@ -530,7 +578,31 @@ export function createYtDlpCaptionProvider(): CaptionProvider {
   return {
     async fetchCaptions(input) {
       try {
-        const stdout = await execFileAsync(getYtDlpCommand(), buildYtDlpVideoInfoArgs(input.youtubeUrl), process.cwd());
+        const ytDlpArgs = buildYtDlpVideoInfoArgs(input.youtubeUrl);
+        const invocations = resolveYtDlpInvocations();
+        const primaryInvocation = invocations[0] ?? { command: DEFAULT_YT_DLP_COMMAND, args: [] };
+
+        let stdout = "";
+        try {
+          stdout = await execFileAsync(primaryInvocation.command, [...primaryInvocation.args, ...ytDlpArgs], process.cwd());
+        } catch (error) {
+          let resolved = false;
+          let lastError = error instanceof Error ? error : new Error("yt-dlp command failed.");
+
+          for (const fallbackInvocation of invocations.slice(1)) {
+            try {
+              stdout = await execFileAsync(fallbackInvocation.command, [...fallbackInvocation.args, ...ytDlpArgs], process.cwd());
+              resolved = true;
+              break;
+            } catch (fallbackError) {
+              lastError = fallbackError instanceof Error ? fallbackError : new Error("yt-dlp command failed.");
+            }
+          }
+
+          if (!resolved) {
+            throw lastError;
+          }
+        }
 
         const videoInfo = JSON.parse(stdout) as YtDlpVideoInfo;
         const selectedTrack =
@@ -580,3 +652,8 @@ export function getMaterialPipelineCaptionProvider(): CaptionProvider {
   }
   return createYtDlpCaptionProvider();
 }
+
+
+
+
+
