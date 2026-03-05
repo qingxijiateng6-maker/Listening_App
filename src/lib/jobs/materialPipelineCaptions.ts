@@ -74,15 +74,42 @@ type Json3Captions = {
   events?: Json3Event[];
 };
 
-type TimedTextTrack = {
+type WatchPageCaptionTrack = {
+  baseUrl: string;
   languageCode: string;
   languageName: string;
   kind?: string;
   name?: string;
+  vssId?: string;
+};
+
+type WatchPagePlayerResponse = {
+  captions?: {
+    playerCaptionsTracklistRenderer?: {
+      captionTracks?: Array<{
+        baseUrl?: string;
+        languageCode?: string;
+        kind?: string;
+        vssId?: string;
+        name?: {
+          simpleText?: string;
+          runs?: Array<{
+            text?: string;
+          }>;
+        };
+      }>;
+    };
+  };
+  videoDetails?: {
+    title?: string;
+    author?: string;
+    lengthSeconds?: string;
+  };
 };
 
 const DEFAULT_YT_DLP_COMMAND = "yt-dlp";
 const PYTHON_YT_DLP_ARGS = ["-m", "yt_dlp"] as const;
+const DEFAULT_CURL_COMMAND = "curl";
 const DEFAULT_YT_DLP_TIMEOUT_MS = 120_000;
 const DEFAULT_CAPTION_FETCH_TIMEOUT_MS = 15_000;
 const DEFAULT_CAPTION_FETCH_RETRIES = 2;
@@ -90,6 +117,10 @@ const MAX_CAPTION_PAYLOAD_BYTES = 5 * 1024 * 1024;
 const DEFAULT_YT_DLP_SUB_LANGS = "en.*,en";
 const DEFAULT_YT_DLP_RETRIES = 3;
 const DEFAULT_YT_DLP_EXTRACTOR_ARGS = "youtube:player_client=tv,android,web";
+const DEFAULT_ANDROID_INNERTUBE_CLIENT_NAME = "3";
+const DEFAULT_ANDROID_INNERTUBE_CLIENT_VERSION = "21.02.35";
+const DEFAULT_ANDROID_INNERTUBE_USER_AGENT =
+  "com.google.android.youtube/21.02.35 (Linux; U; Android 11) gzip";
 const DEFAULT_YT_DLP_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
 
@@ -163,6 +194,13 @@ export function resolveYtDlpInvocations(): CommandInvocation[] {
   return invocations;
 }
 
+function resolveCurlInvocations(): CommandInvocation[] {
+  const invocations: CommandInvocation[] = [];
+  pushUniqueInvocation(invocations, { command: DEFAULT_CURL_COMMAND, args: [] });
+  pushUniqueInvocation(invocations, { command: "curl.exe", args: [] });
+  return invocations;
+}
+
 function getYtDlpTimeoutMs(): number {
   return readEnvInt("YT_DLP_TIMEOUT_MS", DEFAULT_YT_DLP_TIMEOUT_MS);
 }
@@ -216,6 +254,13 @@ function normalizeCaptionText(text: string): string {
       .replace(/\s+/g, " ")
       .trim(),
   );
+}
+
+function buildYouTubeRequestHeaders(): HeadersInit {
+  return {
+    "accept-language": "en-US,en;q=0.9",
+    "user-agent": getYtDlpUserAgent() ?? DEFAULT_YT_DLP_USER_AGENT,
+  };
 }
 
 function buildSegmentId(index: number): string {
@@ -370,33 +415,20 @@ function parseXmlAttributes(rawAttributes: string): Record<string, string> {
   return attributes;
 }
 
-function parseTimedTextTrackList(rawXml: string): TimedTextTrack[] {
-  const tracks: TimedTextTrack[] = [];
-  const trackPattern = /<track\b([^>]*?)\/?>/gi;
-  let match: RegExpExecArray | null = trackPattern.exec(rawXml);
-
-  while (match) {
-    const attributes = parseXmlAttributes(match[1] ?? "");
-    const languageCode = attributes.lang_code?.trim() ?? "";
-    if (!languageCode) {
-      match = trackPattern.exec(rawXml);
-      continue;
-    }
-
-    tracks.push({
-      languageCode,
-      languageName: attributes.lang_translated ?? attributes.lang_original ?? languageCode,
-      kind: attributes.kind?.trim() || undefined,
-      name: attributes.name?.trim() || undefined,
-    });
-
-    match = trackPattern.exec(rawXml);
+function normalizeTrackDisplayName(track: {
+  name?: string;
+  kind?: string;
+  languageName: string;
+}): string {
+  const label = track.name?.trim();
+  if (label) {
+    return label;
   }
 
-  return tracks;
+  return track.kind === "asr" ? `${track.languageName} (auto-generated)` : track.languageName;
 }
 
-function selectTimedTextTrack(tracks: TimedTextTrack[]): TimedTextTrack | null {
+function selectWatchPageCaptionTrack(tracks: WatchPageCaptionTrack[]): WatchPageCaptionTrack | null {
   if (tracks.length === 0) {
     return null;
   }
@@ -406,6 +438,7 @@ function selectTimedTextTrack(tracks: TimedTextTrack[]): TimedTextTrack | null {
       track,
       languagePriority: resolveLanguagePriority(track.languageCode),
       kindPriority: track.kind === "asr" ? 1 : 0,
+      namePriority: normalizeTrackDisplayName(track).includes("Original") ? 0 : 1,
     }))
     .sort((left, right) => {
       if (left.languagePriority !== right.languagePriority) {
@@ -414,35 +447,13 @@ function selectTimedTextTrack(tracks: TimedTextTrack[]): TimedTextTrack | null {
       if (left.kindPriority !== right.kindPriority) {
         return left.kindPriority - right.kindPriority;
       }
+      if (left.namePriority !== right.namePriority) {
+        return left.namePriority - right.namePriority;
+      }
       return left.track.languageCode.localeCompare(right.track.languageCode);
     });
 
   return withPriority[0]?.track ?? null;
-}
-
-function parseTimedTextCaptions(rawXml: string): CaptionCue[] {
-  const cues: CaptionCue[] = [];
-  const textPattern = /<text\b([^>]*)>([\s\S]*?)<\/text>/gi;
-  let match: RegExpExecArray | null = textPattern.exec(rawXml);
-
-  while (match) {
-    const attributes = parseXmlAttributes(match[1] ?? "");
-    const startMs = parseTimedTextSeconds(attributes.start);
-    const durMs = parseTimedTextSeconds(attributes.dur) ?? 0;
-    const body = normalizeCaptionText((match[2] ?? "").replace(/<br\s*\/?>/gi, " "));
-
-    if (startMs !== null && durMs > 0 && body) {
-      cues.push({
-        startMs,
-        endMs: startMs + durMs,
-        text: body,
-      });
-    }
-
-    match = textPattern.exec(rawXml);
-  }
-
-  return cues;
 }
 
 export function parseJson3Captions(rawJson: string): CaptionCue[] {
@@ -638,7 +649,89 @@ export function buildYtDlpVideoInfoArgs(youtubeUrl: string): string[] {
   return args;
 }
 
-async function downloadCaptionPayload(url: string): Promise<{ text: string; contentType: string }> {
+function inferCaptionContentType(rawText: string, url: string, extensionHint?: string): string {
+  const trimmed = rawText.trimStart();
+  const urlObject = new URL(url);
+  const extension = (extensionHint ?? urlObject.searchParams.get("fmt") ?? "").toLowerCase();
+
+  if (extension === "json3" || trimmed.startsWith("{")) {
+    return "application/json";
+  }
+  if (extension === "ttml" || trimmed.startsWith("<?xml") || trimmed.startsWith("<tt")) {
+    return "application/ttml+xml";
+  }
+  if (trimmed.startsWith("<transcript") || trimmed.startsWith("<text")) {
+    return "application/xml";
+  }
+
+  return "text/vtt";
+}
+
+function isValidCaptionPayload(text: string, contentType: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const normalizedType = contentType.toLowerCase();
+  if (normalizedType.includes("html") && !trimmed.startsWith("{") && !trimmed.startsWith("<")) {
+    return false;
+  }
+
+  return (
+    trimmed.startsWith("{") ||
+    trimmed.startsWith("WEBVTT") ||
+    trimmed.startsWith("<?xml") ||
+    trimmed.startsWith("<tt") ||
+    trimmed.startsWith("<transcript") ||
+    trimmed.startsWith("<text")
+  );
+}
+
+async function downloadCaptionPayloadWithCurl(
+  url: string,
+  extensionHint?: string,
+): Promise<{ text: string; contentType: string }> {
+  const invocations = resolveCurlInvocations();
+  let lastError: Error | null = null;
+
+  for (const invocation of invocations) {
+    try {
+      const stdout = await execFileAsync(
+        invocation.command,
+        [
+          ...invocation.args,
+          "-L",
+          "-sS",
+          "--compressed",
+          "-A",
+          getYtDlpUserAgent() ?? DEFAULT_YT_DLP_USER_AGENT,
+          "-H",
+          "Accept-Language: en-US,en;q=0.9",
+          url,
+        ],
+        process.cwd(),
+      );
+
+      if (Buffer.byteLength(stdout, "utf8") > MAX_CAPTION_PAYLOAD_BYTES) {
+        throw new Error("Downloaded YouTube captions are too large to process safely.");
+      }
+
+      const contentType = inferCaptionContentType(stdout, url, extensionHint);
+      if (!isValidCaptionPayload(stdout, contentType)) {
+        throw new Error("Downloaded caption payload was empty or invalid.");
+      }
+
+      return { text: stdout, contentType };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("curl failed to download captions.");
+    }
+  }
+
+  throw lastError ?? new Error("curl failed to download captions.");
+}
+
+async function downloadCaptionPayload(url: string, extensionHint?: string): Promise<{ text: string; contentType: string }> {
   const parsedUrl = new URL(url);
   if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
     throw new Error("Caption URL has an unsupported protocol.");
@@ -654,7 +747,10 @@ async function downloadCaptionPayload(url: string): Promise<{ text: string; cont
     const timeout = setTimeout(() => controller.abort(), getCaptionFetchTimeoutMs());
 
     try {
-      const response = await fetch(url, { signal: controller.signal });
+      const response = await fetch(url, {
+        headers: buildYouTubeRequestHeaders(),
+        signal: controller.signal,
+      });
       if (!response.ok) {
         if ((response.status === 429 || response.status >= 500) && attempt <= retries) {
           continue;
@@ -667,12 +763,22 @@ async function downloadCaptionPayload(url: string): Promise<{ text: string; cont
         throw new Error("Downloaded YouTube captions are too large to process safely.");
       }
 
+      const contentType = response.headers.get("content-type") ?? inferCaptionContentType(payload, url, extensionHint);
+      if (!isValidCaptionPayload(payload, contentType)) {
+        return await downloadCaptionPayloadWithCurl(url, extensionHint);
+      }
+
       return {
         text: payload,
-        contentType: response.headers.get("content-type") ?? "",
+        contentType,
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Caption download failed.");
+      try {
+        return await downloadCaptionPayloadWithCurl(url, extensionHint);
+      } catch (curlError) {
+        lastError = curlError instanceof Error ? curlError : new Error("Caption download failed.");
+      }
       if (attempt > retries) {
         break;
       }
@@ -684,42 +790,222 @@ async function downloadCaptionPayload(url: string): Promise<{ text: string; cont
   throw lastError ?? new Error("Caption download failed.");
 }
 
-function buildTimedTextTrackListUrl(youtubeId: string): string {
-  const url = new URL("https://www.youtube.com/api/timedtext");
-  url.searchParams.set("type", "list");
+function buildWatchPageUrl(youtubeId: string): string {
+  const url = new URL("https://www.youtube.com/watch");
   url.searchParams.set("v", youtubeId);
   return url.toString();
 }
 
-function buildTimedTextCaptionUrl(youtubeId: string, track: TimedTextTrack): string {
-  const url = new URL("https://www.youtube.com/api/timedtext");
-  url.searchParams.set("v", youtubeId);
-  url.searchParams.set("lang", track.languageCode);
-  if (track.kind) {
-    url.searchParams.set("kind", track.kind);
+function parseTrackName(
+  name: {
+    simpleText?: string;
+    runs?: Array<{
+      text?: string;
+    }>;
+  } | undefined,
+): string | undefined {
+  const simpleText = name?.simpleText?.trim();
+  if (simpleText) {
+    return simpleText;
   }
-  if (track.name) {
-    url.searchParams.set("name", track.name);
-  }
-  return url.toString();
+
+  const text = name?.runs?.map((run) => run.text ?? "").join("").trim();
+  return text || undefined;
 }
 
-async function fetchTimedText(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch YouTube timedtext (${response.status}).`);
+function extractCaptionTracksFromPlayerResponse(playerResponse: WatchPagePlayerResponse): WatchPageCaptionTrack[] {
+  return (playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []).reduce<WatchPageCaptionTrack[]>(
+    (tracks, track) => {
+      const baseUrl = track.baseUrl?.trim() ?? "";
+      const languageCode = track.languageCode?.trim() ?? "";
+      if (!baseUrl || !languageCode) {
+        return tracks;
+      }
+
+      tracks.push({
+        baseUrl,
+        languageCode,
+        languageName: languageCode,
+        kind: track.kind?.trim() || undefined,
+        name: parseTrackName(track.name),
+        vssId: track.vssId?.trim() || undefined,
+      });
+      return tracks;
+    },
+    [],
+  );
+}
+
+function parseLengthSeconds(raw: string | undefined): number | undefined {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function toWatchPageMetadata(playerResponse: WatchPagePlayerResponse): CaptionMetadata {
+  return {
+    title: playerResponse.videoDetails?.title?.trim() || undefined,
+    channel: playerResponse.videoDetails?.author?.trim() || undefined,
+    durationSec: parseLengthSeconds(playerResponse.videoDetails?.lengthSeconds),
+  };
+}
+
+function extractBalancedJsonObject(text: string, startIndex: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let isEscaped = false;
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index] ?? "";
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        isEscaped = true;
+        continue;
+      }
+      if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(startIndex, index + 1);
+      }
+    }
   }
 
-  return response.text();
+  return null;
+}
+
+function extractPlayerResponseFromWatchHtml(rawHtml: string): WatchPagePlayerResponse | null {
+  const markers = ["ytInitialPlayerResponse = ", "var ytInitialPlayerResponse = ", "window['ytInitialPlayerResponse'] = "];
+  for (const marker of markers) {
+    const markerIndex = rawHtml.indexOf(marker);
+    if (markerIndex < 0) {
+      continue;
+    }
+
+    const objectStart = rawHtml.indexOf("{", markerIndex + marker.length);
+    if (objectStart < 0) {
+      continue;
+    }
+
+    const jsonText = extractBalancedJsonObject(rawHtml, objectStart);
+    if (!jsonText) {
+      continue;
+    }
+
+    try {
+      return JSON.parse(jsonText) as WatchPagePlayerResponse;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function extractInnertubeApiKey(rawHtml: string): string | null {
+  const match = rawHtml.match(/"INNERTUBE_API_KEY":"([^"]+)"/);
+  return match?.[1] ?? null;
+}
+
+function buildAndroidPlayerRequestBody(youtubeId: string): string {
+  return JSON.stringify({
+    context: {
+      client: {
+        clientName: "ANDROID",
+        clientVersion: DEFAULT_ANDROID_INNERTUBE_CLIENT_VERSION,
+        androidSdkVersion: 30,
+        userAgent: DEFAULT_ANDROID_INNERTUBE_USER_AGENT,
+        osName: "Android",
+        osVersion: "11",
+        hl: "en",
+        gl: "US",
+      },
+    },
+    videoId: youtubeId,
+    contentCheckOk: true,
+    racyCheckOk: true,
+  });
+}
+
+async function fetchWatchPagePlayerResponse(youtubeId: string): Promise<WatchPagePlayerResponse | null> {
+  const watchResponse = await fetch(buildWatchPageUrl(youtubeId), {
+    headers: buildYouTubeRequestHeaders(),
+  });
+  if (!watchResponse.ok) {
+    return null;
+  }
+
+  const rawHtml = await watchResponse.text();
+  const apiKey = extractInnertubeApiKey(rawHtml);
+  if (apiKey) {
+    try {
+      const playerResponse = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": DEFAULT_ANDROID_INNERTUBE_USER_AGENT,
+          "x-youtube-client-name": DEFAULT_ANDROID_INNERTUBE_CLIENT_NAME,
+          "x-youtube-client-version": DEFAULT_ANDROID_INNERTUBE_CLIENT_VERSION,
+        },
+        body: buildAndroidPlayerRequestBody(youtubeId),
+      });
+      if (playerResponse.ok) {
+        const payload = (await playerResponse.json()) as WatchPagePlayerResponse;
+        if (payload.captions?.playerCaptionsTracklistRenderer?.captionTracks?.length) {
+          return payload;
+        }
+      }
+    } catch {
+      // Fall back to parsing the watch page HTML.
+    }
+  }
+
+  return extractPlayerResponseFromWatchHtml(rawHtml);
+}
+
+function buildCaptionTrackDownloadUrls(baseUrl: string): Array<{ url: string; extensionHint?: string }> {
+  const urls: Array<{ url: string; extensionHint?: string }> = [];
+
+  try {
+    const json3Url = new URL(baseUrl);
+    json3Url.searchParams.set("fmt", "json3");
+    urls.push({ url: json3Url.toString(), extensionHint: "json3" });
+  } catch {
+    // Ignore invalid URL mutation and keep the raw URL fallback.
+  }
+
+  urls.push({ url: baseUrl });
+  return urls;
 }
 
 export function createTimedTextCaptionProvider(): CaptionProvider {
   return {
     async fetchCaptions(input) {
       try {
-        const trackListXml = await fetchTimedText(buildTimedTextTrackListUrl(input.youtubeId));
-        const tracks = parseTimedTextTrackList(trackListXml);
-        const selectedTrack = selectTimedTextTrack(tracks);
+        const playerResponse = await fetchWatchPagePlayerResponse(input.youtubeId);
+        const selectedTrack = playerResponse
+          ? selectWatchPageCaptionTrack(extractCaptionTracksFromPlayerResponse(playerResponse))
+          : null;
         if (!selectedTrack) {
           return {
             status: "unavailable",
@@ -729,21 +1015,24 @@ export function createTimedTextCaptionProvider(): CaptionProvider {
           };
         }
 
-        const captionsXml = await fetchTimedText(buildTimedTextCaptionUrl(input.youtubeId, selectedTrack));
-        const cues = parseTimedTextCaptions(captionsXml);
-        if (cues.length === 0) {
-          return {
-            status: "unavailable",
-            source: "youtube_captions",
-            reason: "captions_not_found",
-            message: "Downloaded YouTube captions were empty.",
-          };
+        for (const candidate of buildCaptionTrackDownloadUrls(selectedTrack.baseUrl)) {
+          const downloaded = await downloadCaptionPayload(candidate.url, candidate.extensionHint);
+          const cues = parseCaptionPayload(downloaded.text, downloaded.contentType, candidate.extensionHint);
+          if (cues.length > 0) {
+            return {
+              status: "fetched",
+              source: "youtube_captions",
+              cues,
+              metadata: playerResponse ? toWatchPageMetadata(playerResponse) : undefined,
+            };
+          }
         }
 
         return {
-          status: "fetched",
+          status: "unavailable",
           source: "youtube_captions",
-          cues,
+          reason: "captions_not_found",
+          message: "Downloaded YouTube captions were empty.",
         };
       } catch (error) {
         return {
@@ -800,7 +1089,7 @@ export function createYtDlpCaptionProvider(): CaptionProvider {
           };
         }
 
-        const downloaded = await downloadCaptionPayload(selectedTrack.track.url);
+        const downloaded = await downloadCaptionPayload(selectedTrack.track.url, selectedTrack.track.ext);
         const cues = parseCaptionPayload(downloaded.text, downloaded.contentType, selectedTrack.track.ext);
         if (cues.length === 0) {
           return {

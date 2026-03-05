@@ -149,7 +149,7 @@ describe("Learning screen integration", () => {
     render(<MaterialLearningScreen materialId="mat1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("字幕がまだありません")).toBeInTheDocument();
+      expect(screen.getByText("字幕を生成中です")).toBeInTheDocument();
       expect(screen.getByText("一覧から字幕をタップすると、その位置から動画を再生できます。")).toBeInTheDocument();
     });
   });
