@@ -163,6 +163,10 @@ export function MaterialLearningScreen({ materialId }: Props) {
           id: segmentId,
           ...segment,
         }));
+        if (nextSegments.length === 0) {
+          setError("字幕データが見つかりませんでした。トップから再度登録してください。");
+          return;
+        }
 
         const normalizedExpressions = expressionsPayload.expressions.map((expression) => normalizeSavedExpression(expression));
         const visibleExpressions = normalizedExpressions.filter((expression) => hasVisibleExpressionContent(expression));
@@ -379,6 +383,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
                       </label>
                       <input
                         id="expression-input"
+                        name="expression"
                         type="text"
                         value={formExpression}
                         onChange={(event) => setFormExpression(event.target.value)}
@@ -389,6 +394,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
                       </label>
                       <input
                         id="meaning-input"
+                        name="meaning"
                         type="text"
                         value={formMeaning}
                         onChange={(event) => setFormMeaning(event.target.value)}
@@ -399,6 +405,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
                       </label>
                       <textarea
                         id="example-sentence-input"
+                        name="exampleSentence"
                         className="expressionTextarea"
                         value={formExampleSentence}
                         onChange={(event) => setFormExampleSentence(event.target.value)}

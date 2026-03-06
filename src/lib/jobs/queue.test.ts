@@ -83,4 +83,14 @@ describe("material pipeline failure details", () => {
     expect(details.errorCode).toBe("material_pipeline_format_failed");
     expect(details.errorMessage).toContain('step "format" failed on attempt 6/6: segment write denied');
   });
+
+  it("includes coded pipeline failures in the error code", () => {
+    const error = Object.assign(new Error("captions unavailable"), {
+      code: "captions_not_found",
+    });
+
+    const details = buildJobFailureDetails("captions", 5, error);
+
+    expect(details.errorCode).toBe("material_pipeline_captions_captions_not_found_failed");
+  });
 });

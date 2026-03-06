@@ -8,6 +8,14 @@ const seekToMsMock = vi.fn();
 const playMock = vi.fn();
 const scrollIntoViewMock = vi.fn();
 const buildAuthenticatedRequestHeadersMock = vi.fn();
+const replaceMock = vi.fn();
+const routerMock = {
+  replace: replaceMock,
+};
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => routerMock,
+}));
 
 vi.mock("@/components/materials/YouTubeIFramePlayer", () => ({
   YouTubeIFramePlayer: ({
@@ -42,6 +50,7 @@ describe("Learning screen integration", () => {
     playMock.mockReset();
     scrollIntoViewMock.mockReset();
     buildAuthenticatedRequestHeadersMock.mockReset();
+    replaceMock.mockReset();
     buildAuthenticatedRequestHeadersMock.mockResolvedValue({
       "x-user-id": "u1",
       authorization: "Bearer token-1",
@@ -102,7 +111,7 @@ describe("Learning screen integration", () => {
     });
   });
 
-  it("shows empty states when subtitles are unavailable", async () => {
+  it("redirects back to the loading screen while subtitles are still being prepared", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       expect(init?.headers).toEqual({
@@ -149,8 +158,8 @@ describe("Learning screen integration", () => {
     render(<MaterialLearningScreen materialId="mat1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("字幕を生成中です")).toBeInTheDocument();
-      expect(screen.getByText("一覧から字幕をタップすると、その位置から動画を再生できます。")).toBeInTheDocument();
+      expect(screen.getByText("字幕を準備しています...")).toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith("/materials/loading?materialId=mat1");
     });
   });
 

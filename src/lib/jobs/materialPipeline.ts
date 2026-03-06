@@ -44,6 +44,20 @@ export function isMaterialPipelineCancelledError(error: unknown): error is Mater
   return error instanceof MaterialPipelineCancelledError;
 }
 
+class MaterialPipelineStepError extends Error {
+  constructor(
+    message: string,
+    readonly code:
+      | "captions_not_found"
+      | "captions_provider_not_configured"
+      | "captions_provider_failed"
+      | "formatted_segments_empty",
+  ) {
+    super(message);
+    this.name = "MaterialPipelineStepError";
+  }
+}
+
 function nowTs(): Timestamp {
   return Timestamp.now();
 }
@@ -192,15 +206,19 @@ async function runCaptions(materialId: string, pipelineVersion: string): Promise
   await throwIfMaterialCancelled(materialId);
 
   if (captions.status !== "fetched") {
-    if (captions.reason === "captions_not_found") {
-      await writeState(materialId, pipelineVersion, {
-        ...state,
-        captions,
-        updatedAt: nowTs(),
-      });
-      return;
-    }
-    throw new Error(captions.message);
+    await writeState(materialId, pipelineVersion, {
+      ...state,
+      captions,
+      updatedAt: nowTs(),
+    });
+
+    const errorMessage =
+      captions.reason === "captions_not_found"
+        ? "この動画では字幕を取得できませんでした。字幕が利用できる公開動画で再度お試しください。"
+        : captions.reason === "captions_provider_not_configured"
+          ? "字幕取得の設定に失敗しているため、字幕を準備できませんでした。"
+          : "字幕の取得に失敗しました。時間を置いて再度お試しください。";
+    throw new MaterialPipelineStepError(errorMessage, captions.reason);
   }
 
   await throwIfMaterialCancelled(materialId);
@@ -228,9 +246,20 @@ async function runFormat(materialId: string, pipelineVersion: string): Promise<v
   if (!state.captions) {
     throw new Error(`Captions step must run before format for material ${materialId}.`);
   }
+  if (state.captions.status !== "fetched") {
+    throw new MaterialPipelineStepError(
+      "字幕の取得が完了していないため、学習画面を準備できませんでした。",
+      "formatted_segments_empty",
+    );
+  }
 
-  const formattedSegments =
-    state.captions.status === "fetched" ? formatCaptionCues(state.captions.cues) : [];
+  const formattedSegments = formatCaptionCues(state.captions.cues);
+  if (formattedSegments.length === 0) {
+    throw new MaterialPipelineStepError(
+      "字幕は取得できましたが、学習用の字幕データを生成できませんでした。",
+      "formatted_segments_empty",
+    );
+  }
 
   await throwIfMaterialCancelled(materialId);
   await replaceSegments(materialId, formattedSegments);
