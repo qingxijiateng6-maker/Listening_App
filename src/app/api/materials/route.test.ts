@@ -4,9 +4,7 @@ import { GET, POST } from "@/app/api/materials/route";
 const resolveRequestUserMock = vi.fn();
 const getAdminDbMock = vi.fn();
 const buildMaterialPipelineJobIdMock = vi.fn();
-const createWorkerIdMock = vi.fn();
 const enqueueMaterialPipelineJobMock = vi.fn();
-const runJobToCompletionMock = vi.fn();
 const parseYouTubeUrlMock = vi.fn();
 const isPubliclyAccessibleYouTubeVideoMock = vi.fn();
 
@@ -23,9 +21,7 @@ vi.mock("@/lib/jobs/idempotency", () => ({
 }));
 
 vi.mock("@/lib/jobs/queue", () => ({
-  createWorkerId: (...args: unknown[]) => createWorkerIdMock(...args),
   enqueueMaterialPipelineJob: (...args: unknown[]) => enqueueMaterialPipelineJobMock(...args),
-  runJobToCompletion: (...args: unknown[]) => runJobToCompletionMock(...args),
 }));
 
 vi.mock("@/lib/youtube", () => ({
@@ -163,9 +159,7 @@ describe("POST /api/materials", () => {
     resolveRequestUserMock.mockReset();
     getAdminDbMock.mockReset();
     buildMaterialPipelineJobIdMock.mockReset();
-    createWorkerIdMock.mockReset();
     enqueueMaterialPipelineJobMock.mockReset();
-    runJobToCompletionMock.mockReset();
     parseYouTubeUrlMock.mockReset();
     isPubliclyAccessibleYouTubeVideoMock.mockReset();
   });
@@ -203,7 +197,7 @@ describe("POST /api/materials", () => {
     });
   });
 
-  it("creates a new material and runs the pipeline", async () => {
+  it("creates a new material and enqueues the pipeline", async () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     parseYouTubeUrlMock.mockReturnValueOnce({
       youtubeId: "dQw4w9WgXcQ",
@@ -211,23 +205,13 @@ describe("POST /api/materials", () => {
     });
     isPubliclyAccessibleYouTubeVideoMock.mockResolvedValueOnce(true);
     buildMaterialPipelineJobIdMock.mockReturnValueOnce("job-1");
-    createWorkerIdMock.mockReturnValueOnce("worker-1");
     enqueueMaterialPipelineJobMock.mockResolvedValueOnce("job-1");
-    runJobToCompletionMock.mockResolvedValueOnce({ result: "done" });
 
     const materialRef = {
       id: "mat-1",
       set: vi.fn().mockResolvedValue(undefined),
     };
-    const docMock = vi
-      .fn()
-      .mockReturnValueOnce(materialRef)
-      .mockReturnValueOnce({
-        get: vi.fn().mockResolvedValue({
-          exists: true,
-          data: () => ({ status: "ready" }),
-        }),
-      });
+    const docMock = vi.fn().mockReturnValueOnce(materialRef);
     const getMock = vi.fn().mockResolvedValue({ docs: [] });
     const whereMock = vi.fn().mockReturnValue({ get: getMock });
     getAdminDbMock.mockReturnValue({
@@ -246,11 +230,10 @@ describe("POST /api/materials", () => {
     );
 
     expect(enqueueMaterialPipelineJobMock).toHaveBeenCalledWith("mat-1");
-    expect(runJobToCompletionMock).toHaveBeenCalledWith("job-1", "worker-1");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       materialId: "mat-1",
-      status: "ready",
+      status: "queued",
       jobId: "job-1",
       reused: false,
     });
@@ -264,24 +247,14 @@ describe("POST /api/materials", () => {
     });
     isPubliclyAccessibleYouTubeVideoMock.mockResolvedValueOnce(true);
     buildMaterialPipelineJobIdMock.mockReturnValueOnce("job-1");
-    createWorkerIdMock.mockReturnValueOnce("worker-1");
     enqueueMaterialPipelineJobMock.mockResolvedValueOnce("job-1");
-    runJobToCompletionMock.mockResolvedValueOnce({ result: "done" });
 
     const setMock = vi.fn().mockResolvedValue(undefined);
     const materialRef = {
       id: "mat-1",
       set: setMock,
     };
-    const docMock = vi
-      .fn()
-      .mockReturnValueOnce(materialRef)
-      .mockReturnValueOnce({
-        get: vi.fn().mockResolvedValue({
-          exists: true,
-          data: () => ({ status: "ready" }),
-        }),
-      });
+    const docMock = vi.fn().mockReturnValueOnce(materialRef);
     const getMock = vi.fn().mockResolvedValue({ docs: [] });
     const whereMock = vi.fn().mockReturnValue({ get: getMock });
     getAdminDbMock.mockReturnValue({
@@ -305,6 +278,49 @@ describe("POST /api/materials", () => {
       }),
     );
     expect(response.status).toBe(200);
+  });
+
+  it("does not enqueue a reused ready material", async () => {
+    resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
+    parseYouTubeUrlMock.mockReturnValueOnce({
+      youtubeId: "dQw4w9WgXcQ",
+      normalizedUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
+    isPubliclyAccessibleYouTubeVideoMock.mockResolvedValueOnce(true);
+    buildMaterialPipelineJobIdMock.mockReturnValueOnce("job-1");
+
+    const existingDoc = {
+      id: "mat-existing",
+      data: () => ({
+        youtubeId: "dQw4w9WgXcQ",
+        status: "ready",
+        pipelineVersion: "v2",
+      }),
+    };
+    const getMock = vi.fn().mockResolvedValue({ docs: [existingDoc] });
+    const whereMock = vi.fn().mockReturnValue({ get: getMock });
+    getAdminDbMock.mockReturnValue({
+      collection: vi.fn().mockReturnValue({
+        where: whereMock,
+      }),
+    });
+
+    const response = await POST(
+      toNextRequest(new Request("http://localhost/api/materials", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }),
+      })),
+    );
+
+    expect(enqueueMaterialPipelineJobMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      materialId: "mat-existing",
+      status: "ready",
+      jobId: "job-1",
+      reused: true,
+    });
   });
 
   it("returns a JSON 500 when material creation throws", async () => {

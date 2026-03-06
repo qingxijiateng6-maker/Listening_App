@@ -137,14 +137,8 @@ export async function POST(request: NextRequest) {
     }
 
     const jobId = buildMaterialPipelineJobId(materialId, MATERIAL_PIPELINE_VERSION);
-    await queueModule.enqueueMaterialPipelineJob(materialId);
-
     if (materialStatus !== "ready") {
-      await queueModule.runJobToCompletion(jobId, queueModule.createWorkerId("material-create"));
-      const materialSnapshot = await db.collection("materials").doc(materialId).get();
-      if (materialSnapshot.exists) {
-        materialStatus = ((materialSnapshot.data() as MaterialRecord).status ?? materialStatus);
-      }
+      await queueModule.enqueueMaterialPipelineJob(materialId);
     }
 
     return NextResponse.json({

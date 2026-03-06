@@ -28,15 +28,6 @@ type PrepareMaterialResponse = {
   shouldContinuePolling?: boolean;
 };
 
-type MaterialStatusResponse = {
-  error?: string;
-  status?: MaterialStatus;
-  material?: {
-    segmentCount?: number;
-    pipelineState?: PipelineState;
-  };
-};
-
 type MaterialSegmentsResponse = {
   error?: string;
   segments?: Array<{
@@ -206,12 +197,12 @@ export function MaterialRegistrationLoadingScreen() {
     async function pollPrepare() {
       try {
         const authHeaders = await buildAuthenticatedRequestHeaders();
-        const response = await fetch(`/api/materials/${materialId}`, {
-          method: "GET",
+        const response = await fetch(`/api/materials/${materialId}/prepare`, {
+          method: "POST",
           headers: authHeaders,
         });
 
-        const payload = await readJsonResponse<MaterialStatusResponse>(response);
+        const payload = await readJsonResponse<PrepareMaterialResponse>(response);
         if (!response.ok) {
           throw new Error(payload?.error ?? "字幕の準備状況を確認できませんでした。");
         }
@@ -220,7 +211,7 @@ export function MaterialRegistrationLoadingScreen() {
           return;
         }
 
-        setLoadingMessage(buildLoadingMessage(payload?.status, payload?.material?.pipelineState));
+        setLoadingMessage(buildLoadingMessage(payload?.status, payload?.pipelineState));
 
         if (payload?.status === "ready") {
           const segmentCount = await fetchMaterialSegments(materialId, authHeaders);
@@ -240,7 +231,7 @@ export function MaterialRegistrationLoadingScreen() {
             buildPrepareErrorMessage({
               error: payload.error,
               status: payload.status,
-              pipelineState: payload.material?.pipelineState,
+              pipelineState: payload.pipelineState,
             }),
           );
           return;
