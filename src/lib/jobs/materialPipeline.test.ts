@@ -249,7 +249,54 @@ describe("runMaterialPipelineStep", () => {
     });
   });
 
+  it("persists unavailable caption state and fails the captions step", async () => {
+    mockContext.db.seed(["materials", "mat-1"], {
+      youtubeId: "yt-123",
+      youtubeUrl: "https://youtu.be/yt-123",
+      title: "Original title",
+      channel: "Original channel",
+      durationSec: 100,
+    });
+    mockContext.db.seed(["materials", "mat-1", "_pipeline", "state:v2"], {
+      meta: {
+        youtubeId: "yt-123",
+        youtubeUrl: "https://youtu.be/yt-123",
+        title: "Original title",
+        channel: "Original channel",
+        durationSec: 100,
+      },
+      updatedAt: Timestamp.now(),
+    });
+    mockContext.fetchCaptions.mockResolvedValue({
+      status: "unavailable",
+      source: "youtube_captions",
+      reason: "captions_not_found",
+      message: "No YouTube captions were available for this video.",
+    });
+
+    await expect(
+      runMaterialPipelineStep({
+        materialId: "mat-1",
+        pipelineVersion: "v2",
+        step: "captions",
+      }),
+    ).rejects.toThrow("この動画では字幕を取得できませんでした。");
+
+    expect(mockContext.db.read(["materials", "mat-1", "_pipeline", "state:v2"])).toMatchObject({
+      captions: {
+        status: "unavailable",
+        source: "youtube_captions",
+        reason: "captions_not_found",
+      },
+    });
+  });
+
   it("replaces persisted segments during the format step", async () => {
+    mockContext.db.seed(["materials", "mat-1"], {
+      youtubeId: "yt-123",
+      youtubeUrl: "https://youtu.be/yt-123",
+      status: "processing",
+    });
     mockContext.db.seed(["materials", "mat-1", "segments", "old-1"], {
       startMs: 0,
       endMs: 400,
@@ -276,12 +323,36 @@ describe("runMaterialPipelineStep", () => {
     const storedSegments = mockContext.db.list(["materials", "mat-1", "segments"]);
     const formattedSegments = storedSegments.map(({ value }) => value as FormattedSegment);
 
-    expect(segmentTexts(formattedSegments)).toEqual(["First segment", "Second segment"]);
+    expect(segmentTexts(formattedSegments)).toEqual(["First segment Second segment"]);
     expect(
       storedSegments.some(({ path }) => path[path.length - 1] === "old-1"),
     ).toBe(false);
     expect(mockContext.db.read(["materials", "mat-1", "_pipeline", "state:v3"])).toMatchObject({
-      formattedSegmentCount: 2,
+      formattedSegmentCount: 1,
     });
+  });
+
+  it("fails the format step when captions cannot produce any usable segments", async () => {
+    mockContext.db.seed(["materials", "mat-1"], {
+      youtubeId: "yt-123",
+      youtubeUrl: "https://youtu.be/yt-123",
+      status: "processing",
+    });
+    mockContext.db.seed(["materials", "mat-1", "_pipeline", "state:v3"], {
+      captions: {
+        status: "fetched",
+        source: "youtube_captions",
+        cues: [{ startMs: 1000, endMs: 1000, text: "ignored" }],
+      },
+      updatedAt: Timestamp.now(),
+    });
+
+    await expect(
+      runMaterialPipelineStep({
+        materialId: "mat-1",
+        pipelineVersion: "v3",
+        step: "format",
+      }),
+    ).rejects.toThrow("字幕は取得できましたが、学習用の字幕データを生成できませんでした。");
   });
 });

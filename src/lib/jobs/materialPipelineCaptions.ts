@@ -311,11 +311,7 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : 1;
 }
 
-function selectWatchPageCaptionTrack(tracks: WatchPageCaptionTrack[]): WatchPageCaptionTrack | null {
-  if (tracks.length === 0) {
-    return null;
-  }
-
+function rankWatchPageCaptionTracks(tracks: WatchPageCaptionTrack[]): WatchPageCaptionTrack[] {
   const rankedTracks = [...tracks];
   rankedTracks.sort((left, right) => {
     const languageDiff = resolveLanguagePriority(left.languageCode) - resolveLanguagePriority(right.languageCode);
@@ -338,7 +334,7 @@ function selectWatchPageCaptionTrack(tracks: WatchPageCaptionTrack[]): WatchPage
     return compareText(left.languageCode, right.languageCode);
   });
 
-  return rankedTracks[0] ?? null;
+  return rankedTracks;
 }
 
 function parseLengthSeconds(raw: string | undefined): number | undefined {
@@ -1015,11 +1011,11 @@ function createFetchCaptionProvider(): CaptionProvider {
       try {
         const watchUrl = buildWatchPageUrl(input.youtubeId);
         const playerResponse = await fetchWatchPagePlayerResponse(input.youtubeId);
-        const selectedTrack = playerResponse
-          ? selectWatchPageCaptionTrack(extractCaptionTracksFromPlayerResponse(playerResponse))
-          : null;
+        const rankedTracks = playerResponse
+          ? rankWatchPageCaptionTracks(extractCaptionTracksFromPlayerResponse(playerResponse))
+          : [];
 
-        if (!selectedTrack) {
+        if (rankedTracks.length === 0) {
           return {
             status: "unavailable",
             source: "youtube_captions",
@@ -1028,28 +1024,30 @@ function createFetchCaptionProvider(): CaptionProvider {
           };
         }
 
-        let sawDownload = false;
+        let sawDownloadedPayload = false;
         let lastError: Error | null = null;
 
-        for (const candidate of buildCaptionTrackDownloadUrls(selectedTrack.baseUrl)) {
-          try {
-            const downloaded = await downloadCaptionPayload(candidate.url, candidate.extensionHint, watchUrl);
-            sawDownload = true;
-            const cues = parseCaptionPayload(downloaded.text, downloaded.contentType, candidate.extensionHint);
-            if (cues.length > 0) {
-              return {
-                status: "fetched",
-                source: "youtube_captions",
-                cues,
-                metadata: playerResponse ? toWatchPageMetadata(playerResponse) : undefined,
-              };
+        for (const track of rankedTracks) {
+          for (const candidate of buildCaptionTrackDownloadUrls(track.baseUrl)) {
+            try {
+              const downloaded = await downloadCaptionPayload(candidate.url, candidate.extensionHint, watchUrl);
+              sawDownloadedPayload = true;
+              const cues = parseCaptionPayload(downloaded.text, downloaded.contentType, candidate.extensionHint);
+              if (cues.length > 0) {
+                return {
+                  status: "fetched",
+                  source: "youtube_captions",
+                  cues,
+                  metadata: playerResponse ? toWatchPageMetadata(playerResponse) : undefined,
+                };
+              }
+            } catch (error) {
+              lastError = error instanceof Error ? error : new Error("Failed to download YouTube captions.");
             }
-          } catch (error) {
-            lastError = error instanceof Error ? error : new Error("Failed to download YouTube captions.");
           }
         }
 
-        if (sawDownload) {
+        if (sawDownloadedPayload) {
           return {
             status: "unavailable",
             source: "youtube_captions",

@@ -32,8 +32,19 @@ type MaterialStatusResponse = {
   error?: string;
   status?: MaterialStatus;
   material?: {
+    segmentCount?: number;
     pipelineState?: PipelineState;
   };
+};
+
+type MaterialSegmentsResponse = {
+  error?: string;
+  segments?: Array<{
+    segmentId: string;
+    startMs: number;
+    endMs: number;
+    text: string;
+  }>;
 };
 
 const PREPARE_POLL_INTERVAL_MS = 1500;
@@ -57,6 +68,19 @@ function buildLoadingMessage(status: MaterialStatus | undefined, pipelineState: 
 }
 
 function buildPrepareErrorMessage(payload: PrepareMaterialResponse): string {
+  const errorCode = payload.pipelineState?.errorCode ?? "";
+  if (errorCode.includes("captions_not_found")) {
+    return "この動画では字幕を取得できませんでした。字幕が利用できる公開動画で再度お試しください。";
+  }
+  if (errorCode.includes("captions_provider_not_configured")) {
+    return "字幕取得の設定に失敗しているため、字幕を準備できませんでした。";
+  }
+  if (errorCode.includes("captions_provider_failed")) {
+    return "字幕の取得に失敗しました。時間を置いて再度お試しください。";
+  }
+  if (errorCode.includes("formatted_segments_empty")) {
+    return "字幕は取得できましたが、学習画面に必要な字幕データを生成できませんでした。";
+  }
   if (payload.error?.trim()) {
     return payload.error;
   }
@@ -67,6 +91,23 @@ function buildPrepareErrorMessage(payload: PrepareMaterialResponse): string {
     return "字幕の準備に失敗しました。時間を置いて再度お試しください。";
   }
   return "字幕の準備を完了できませんでした。";
+}
+
+async function fetchMaterialSegments(
+  materialId: string,
+  authHeaders: Record<string, string>,
+): Promise<number> {
+  const response = await fetch(`/api/materials/${materialId}/segments`, {
+    method: "GET",
+    headers: authHeaders,
+  });
+
+  const payload = await readJsonResponse<MaterialSegmentsResponse>(response);
+  if (!response.ok) {
+    throw new Error(payload?.error ?? "字幕データを確認できませんでした。");
+  }
+
+  return payload?.segments?.length ?? 0;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T | null> {
@@ -137,11 +178,6 @@ export function MaterialRegistrationLoadingScreen() {
         }
 
         if (!cancelled) {
-          if (payload.status === "ready") {
-            router.replace(`/materials/${payload.materialId}`);
-            return;
-          }
-
           setMaterialId(payload.materialId);
           setLoadingMessage(buildLoadingMessage(payload.status, undefined));
         }
@@ -187,6 +223,14 @@ export function MaterialRegistrationLoadingScreen() {
         setLoadingMessage(buildLoadingMessage(payload?.status, payload?.material?.pipelineState));
 
         if (payload?.status === "ready") {
+          const segmentCount = await fetchMaterialSegments(materialId, authHeaders);
+          if (cancelled) {
+            return;
+          }
+          if (segmentCount <= 0) {
+            setError("字幕データが見つかりませんでした。トップから再度登録してください。");
+            return;
+          }
           router.replace(`/materials/${materialId}`);
           return;
         }

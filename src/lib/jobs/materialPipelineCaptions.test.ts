@@ -287,6 +287,74 @@ describe("caption provider", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("fmt=json3");
   });
 
+  it("tries the next ranked caption track when the first track does not yield usable cues", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    fetchMock
+      .mockResolvedValueOnce(
+        textResponse(
+          `<html><script>var ytInitialPlayerResponse = ${JSON.stringify({
+            videoDetails: {
+              title: "Track Fallback",
+              author: "Fallback Channel",
+              lengthSeconds: "42",
+            },
+            captions: {
+              playerCaptionsTracklistRenderer: {
+                captionTracks: [
+                  {
+                    baseUrl: "https://www.youtube.com/api/timedtext?v=fallback&lang=en&kind=asr",
+                    languageCode: "en",
+                    kind: "asr",
+                    name: { simpleText: "English (auto-generated)" },
+                  },
+                  {
+                    baseUrl: "https://www.youtube.com/api/timedtext?v=fallback&lang=en",
+                    languageCode: "en",
+                    name: { simpleText: "English" },
+                  },
+                ],
+              },
+            },
+          })};</script></html>`,
+        ),
+      )
+      .mockResolvedValueOnce(textResponse('{"events":[]}', { headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(textResponse("WEBVTT\n\n", { headers: { "content-type": "text/vtt" } }))
+      .mockResolvedValueOnce(
+        textResponse(
+          JSON.stringify({
+            events: [{ tStartMs: 0, dDurationMs: 500, segs: [{ utf8: "fallback cue" }] }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    const provider = getMaterialPipelineCaptionProvider();
+    const result = await provider.fetchCaptions({
+      materialId: "mat-4",
+      youtubeId: "fallback",
+      youtubeUrl: "https://www.youtube.com/watch?v=fallback",
+    });
+
+    expect(result).toEqual({
+      status: "fetched",
+      source: "youtube_captions",
+      cues: [{ startMs: 0, endMs: 500, text: "fallback cue" }],
+      metadata: {
+        title: "Track Fallback",
+        channel: "Fallback Channel",
+        durationSec: 42,
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("lang=en");
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("lang=en");
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain("lang=en&kind=asr");
+  });
+
   it("returns captions_not_found when the video exposes no caption tracks", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);

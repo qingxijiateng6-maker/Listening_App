@@ -6,11 +6,12 @@ import { MaterialRegistrationLoadingScreen } from "@/components/materials/Materi
 const replaceMock = vi.fn();
 const fetchMock = vi.fn();
 const buildAuthenticatedRequestHeadersMock = vi.fn();
+const routerMock = {
+  replace: replaceMock,
+};
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    replace: replaceMock,
-  }),
+  useRouter: () => routerMock,
   useSearchParams: () =>
     new URLSearchParams({
       youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
@@ -59,6 +60,12 @@ describe("MaterialRegistrationLoadingScreen", () => {
         status: "ready",
       }),
     });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        segments: [{ segmentId: "seg-1", startMs: 0, endMs: 1000, text: "Hello world" }],
+      }),
+    });
 
     render(<MaterialRegistrationLoadingScreen />);
 
@@ -78,6 +85,16 @@ describe("MaterialRegistrationLoadingScreen", () => {
       );
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/materials/mat1",
+        expect.objectContaining({
+          method: "GET",
+          headers: expect.objectContaining({
+            "x-user-id": "u1",
+            authorization: "Bearer token-1",
+          }),
+        }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/materials/mat1/segments",
         expect.objectContaining({
           method: "GET",
           headers: expect.objectContaining({
@@ -109,5 +126,48 @@ describe("MaterialRegistrationLoadingScreen", () => {
       expect(screen.getByText("登録エラー")).toBeInTheDocument();
       expect(screen.getByText("字幕の準備状況を確認できませんでした。")).toBeInTheDocument();
     });
+  });
+
+  it("shows an error instead of routing when the ready material still has no subtitle segments", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        materialId: "mat1",
+        status: "processing",
+      }),
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        material: {
+          materialId: "mat1",
+          youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          youtubeId: "dQw4w9WgXcQ",
+          title: "Sample",
+          channel: "Channel",
+          durationSec: 120,
+          status: "ready",
+          pipelineVersion: "v2",
+          createdAt: { seconds: 1, nanoseconds: 0 },
+          updatedAt: { seconds: 2, nanoseconds: 0 },
+        },
+        status: "ready",
+      }),
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        segments: [],
+      }),
+    });
+
+    render(<MaterialRegistrationLoadingScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText("登録エラー")).toBeInTheDocument();
+      expect(screen.getByText("字幕データが見つかりませんでした。トップから再度登録してください。")).toBeInTheDocument();
+    });
+
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 });

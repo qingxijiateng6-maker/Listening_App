@@ -10,15 +10,16 @@ type DocRecord = Record<string, unknown>;
 const pushMock = vi.fn();
 const replaceMock = vi.fn();
 const fetchMock = vi.fn();
+const routerMock = {
+  push: pushMock,
+  replace: replaceMock,
+};
 
 const materials = new Map<string, DocRecord>();
 const segments = new Map<string, Array<{ id: string; data: DocRecord }>>();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: pushMock,
-    replace: replaceMock,
-  }),
+  useRouter: () => routerMock,
   useSearchParams: () =>
     new URLSearchParams({
       youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
@@ -126,14 +127,6 @@ describe("registration -> queued job -> learning integration", () => {
 
     registrationView.unmount();
 
-    const loadingView = render(<MaterialRegistrationLoadingScreen />);
-
-    await waitFor(() => {
-      expect(replaceMock).toHaveBeenCalledWith("/materials/mat1");
-    });
-
-    loadingView.unmount();
-
     materials.set("mat1", {
       youtubeId: "dQw4w9WgXcQ",
       status: "ready",
@@ -145,6 +138,14 @@ describe("registration -> queued job -> learning integration", () => {
         data: { startMs: 1000, endMs: 3000, text: "take ownership and move forward" },
       },
     ]);
+
+    const loadingView = render(<MaterialRegistrationLoadingScreen />);
+
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalledWith("/materials/mat1");
+    });
+
+    loadingView.unmount();
 
     const learningView = render(<MaterialLearningScreen materialId="mat1" />);
 

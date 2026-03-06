@@ -130,12 +130,21 @@ export function buildJobFailureDetails(
   const isPermanentFailure = nextAttempt >= JOB_MAX_ATTEMPTS;
   const failureStage = isPermanentFailure ? "failed" : "retrying";
   const reason = error instanceof Error ? error.message : "Unknown worker failure";
+  const detailCode =
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code: unknown }).code === "string"
+      ? ((error as { code: string }).code ?? "").trim()
+      : "";
 
   return {
     nextAttempt,
     nextRunAt,
     isPermanentFailure,
-    errorCode: `material_pipeline_${step}_${failureStage}`,
+    errorCode: detailCode
+      ? `material_pipeline_${step}_${detailCode}_${failureStage}`
+      : `material_pipeline_${step}_${failureStage}`,
     errorMessage: `material pipeline step "${step}" ${failureStage} on attempt ${nextAttempt}/${JOB_MAX_ATTEMPTS}: ${reason}`,
   };
 }
