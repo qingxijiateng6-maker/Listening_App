@@ -70,6 +70,10 @@ function nowTs(): Timestamp {
   return Timestamp.now();
 }
 
+function isFreshProcessingJob(job: JobRecord, workerId: string, now: Timestamp): boolean {
+  return job.status === "processing" && job.lockedBy !== workerId && !isLockStale(job.lockedAt, now);
+}
+
 function nextStep(step: JobStep): JobStep | null {
   const index = MATERIAL_PIPELINE_STEPS.indexOf(step);
   if (index < 0 || index === MATERIAL_PIPELINE_STEPS.length - 1) {
@@ -371,7 +375,7 @@ async function markJobQueuedForRetry(jobId: string, attempt: number, error: unkn
   });
 }
 
-async function progressMaterialPipeline(jobId: string, job: JobRecord): Promise<void> {
+async function progressMaterialPipeline(jobId: string, job: JobRecord, workerId?: string): Promise<void> {
   const db = getAdminDb();
   const materialRef = db.collection("materials").doc(job.materialId);
   const jobRef = db.collection("jobs").doc(jobId);
@@ -400,6 +404,9 @@ async function progressMaterialPipeline(jobId: string, job: JobRecord): Promise<
     }
     if (latestJob.type !== "material_pipeline") {
       throw new Error("Unsupported job type for this worker.");
+    }
+    if (workerId && isFreshProcessingJob(latestJob, workerId, now)) {
+      throw new Error("Job is locked by another worker.");
     }
 
     if (
@@ -446,7 +453,7 @@ async function progressMaterialPipeline(jobId: string, job: JobRecord): Promise<
   });
 }
 
-export async function runSingleJob(jobId: string): Promise<{
+export async function runSingleJob(jobId: string, workerId?: string): Promise<{
   result: "done" | "processing" | "failed";
 }> {
   const db = getAdminDb();
@@ -460,10 +467,13 @@ export async function runSingleJob(jobId: string): Promise<{
   if (job.status !== "processing") {
     return { result: "failed" };
   }
+  if (workerId && isFreshProcessingJob(job, workerId, nowTs())) {
+    return { result: "processing" };
+  }
 
   try {
     if (job.type === "material_pipeline") {
-      await progressMaterialPipeline(jobId, job);
+      await progressMaterialPipeline(jobId, job, workerId);
       const latest = await jobRef.get();
       const latestJob = latest.data() as JobRecord | undefined;
       if (!latestJob) {
@@ -488,7 +498,24 @@ export async function runJobToCompletion(
   const db = getAdminDb();
   const jobRef = db.collection("jobs").doc(jobId);
 
-  await lockJobById(jobId, workerId);
+  const locked = await lockJobById(jobId, workerId);
+  if (!locked) {
+    const snapshot = await jobRef.get();
+    if (!snapshot.exists) {
+      return { result: "failed" };
+    }
+
+    const job = snapshot.data() as JobRecord;
+    if (job.status === "done") {
+      return { result: "done" };
+    }
+    if (job.status === "failed") {
+      return { result: "failed" };
+    }
+    if (isFreshProcessingJob(job, workerId, nowTs())) {
+      return { result: "processing" };
+    }
+  }
 
   for (let iteration = 0; iteration < maxIterations; iteration += 1) {
     const snapshot = await jobRef.get();
@@ -510,8 +537,11 @@ export async function runJobToCompletion(
       }
       continue;
     }
+    if (isFreshProcessingJob(job, workerId, nowTs())) {
+      return { result: "processing" };
+    }
 
-    const result = await runSingleJob(jobId);
+    const result = await runSingleJob(jobId, workerId);
     if (result.result === "failed") {
       const latest = await jobRef.get();
       const latestJob = latest.data() as JobRecord | undefined;
@@ -535,11 +565,16 @@ export async function enqueueMaterialPipelineJob(materialId: string): Promise<st
   const materialRef = db.collection("materials").doc(materialId);
 
   await db.runTransaction(async (tx) => {
-    const existing = await tx.get(jobRef);
+    const [existing, materialSnap] = await Promise.all([tx.get(jobRef), tx.get(materialRef)]);
     if (existing.exists) {
       return;
     }
-    const materialSnap = await tx.get(materialRef);
+    if (materialSnap.exists) {
+      const material = materialSnap.data() as MaterialRecord;
+      if (material.status === "ready" && material.pipelineVersion === MATERIAL_PIPELINE_VERSION) {
+        return;
+      }
+    }
 
     tx.create(jobRef, {
       type: "material_pipeline",
@@ -557,11 +592,6 @@ export async function enqueueMaterialPipelineJob(materialId: string): Promise<st
       updatedAt: now,
     });
     if (!materialSnap.exists) {
-      return;
-    }
-
-    const material = materialSnap.data() as MaterialRecord;
-    if (material.status === "ready" && material.pipelineVersion === MATERIAL_PIPELINE_VERSION) {
       return;
     }
 

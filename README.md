@@ -58,8 +58,9 @@ YouTube の公開動画を教材化し、字幕を見ながら学習した表現
 1. `POST /api/materials` で YouTube URL を登録する
 2. 動画 URL を検証し、同一ユーザー内の重複教材を再利用する
 3. `jobs/{jobId}` に `material_pipeline` ジョブを投入する
-4. `meta` -> `captions` -> `format` の順に処理する
-5. 完了後、`materials` と `segments` に教材データを保存する
+4. ローディング画面の `POST /api/materials/[materialId]/prepare` が対象ジョブを継続実行する
+5. `meta` -> `captions` -> `format` の順に処理する
+6. 完了後、`materials` と `segments` に教材データを保存する
 
 字幕生成後の表現保存はパイプラインではなく、学習画面のフォームから明示的に行います。
 
@@ -72,6 +73,7 @@ YouTube の公開動画を教材化し、字幕を見ながら学習した表現
 | `GET` | `/api/materials` | 自分の教材一覧を取得 |
 | `POST` | `/api/materials` | YouTube URL から教材を登録 |
 | `GET` | `/api/materials/[materialId]` | 教材詳細を取得 |
+| `POST` | `/api/materials/[materialId]/prepare` | 教材生成ジョブを継続し、最新状態を返す |
 | `DELETE` | `/api/materials/[materialId]` | 教材を削除 |
 | `GET` | `/api/materials/[materialId]/segments` | 字幕一覧を取得 |
 | `GET` | `/api/materials/[materialId]/expressions` | 保存済み表現一覧を取得 |
@@ -235,21 +237,18 @@ firebase deploy --only firestore:rules
 
 1. リポジトリを接続する
 2. `.env.example` の値を Environment Variables に設定する
-3. Preview / Production をデプロイする
+3. `CRON_SECRET` を設定し、`/api/cron/jobs` を定期実行できるようにする
+4. Preview / Production をデプロイする
 
 ## 外部スケジューラ
 
-`POST /api/materials` 内でジョブ実行を開始するため、常時スケジューラは必須ではありません。
-
-ただし次の用途で外部スケジューラを使えます。
-
-- 取りこぼした `queued` job の再処理
-- stale lock の回収
+ローディング画面の `prepare` API が即時の継続実行を担当し、定期スケジューラは取りこぼした job の再処理と stale lock 回収を担当します。
 
 推奨エンドポイント:
 
 - `POST /api/worker/jobs/dispatch`
 - `POST /api/worker/jobs/recover-stale`
+- `GET /api/cron/jobs`
 
 ## テスト
 

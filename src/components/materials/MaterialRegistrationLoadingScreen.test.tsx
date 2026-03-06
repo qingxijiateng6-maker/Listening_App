@@ -45,19 +45,15 @@ describe("MaterialRegistrationLoadingScreen", () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        material: {
-          materialId: "mat1",
-          youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-          youtubeId: "dQw4w9WgXcQ",
-          title: "Sample",
-          channel: "Channel",
-          durationSec: 120,
-          status: "ready",
-          pipelineVersion: "v2",
-          createdAt: { seconds: 1, nanoseconds: 0 },
-          updatedAt: { seconds: 2, nanoseconds: 0 },
-        },
         status: "ready",
+        pipelineState: {
+          currentStep: "format",
+          lastCompletedStep: "format",
+          status: "ready",
+          updatedAt: { seconds: 2, nanoseconds: 0 },
+          errorCode: "",
+          errorMessage: "",
+        },
       }),
     });
     fetchMock.mockResolvedValueOnce({
@@ -84,9 +80,9 @@ describe("MaterialRegistrationLoadingScreen", () => {
         }),
       );
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/materials/mat1",
+        "/api/materials/mat1/prepare",
         expect.objectContaining({
-          method: "GET",
+          method: "POST",
           headers: expect.objectContaining({
             "x-user-id": "u1",
             authorization: "Bearer token-1",
@@ -139,19 +135,15 @@ describe("MaterialRegistrationLoadingScreen", () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        material: {
-          materialId: "mat1",
-          youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-          youtubeId: "dQw4w9WgXcQ",
-          title: "Sample",
-          channel: "Channel",
-          durationSec: 120,
-          status: "ready",
-          pipelineVersion: "v2",
-          createdAt: { seconds: 1, nanoseconds: 0 },
-          updatedAt: { seconds: 2, nanoseconds: 0 },
-        },
         status: "ready",
+        pipelineState: {
+          currentStep: "format",
+          lastCompletedStep: "format",
+          status: "ready",
+          updatedAt: { seconds: 2, nanoseconds: 0 },
+          errorCode: "",
+          errorMessage: "",
+        },
       }),
     });
     fetchMock.mockResolvedValueOnce({

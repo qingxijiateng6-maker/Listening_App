@@ -9,7 +9,7 @@
 - Web/App: Next.js (Vercel)
 - 認証: Firebase Anonymous Auth
 - DB: Firestore
-- 非同期処理: Firestore `jobs` + 登録API即時実行 + 外部スケジューラ + Worker API
+- 非同期処理: Firestore `jobs` + prepare API + Vercel Cron / 外部スケジューラ + Worker API
 
 ## 2.1 Firestore アクセス方針
 
@@ -64,7 +64,7 @@
 
 ## 4.1 外部スケジューラ運用
 
-- Hobbyプランでは Vercel Cron を使わず、外部スケジューラから Worker API を叩く
+- Hobbyプランでは `vercel.json` のデフォルト cron は日次なので、より短い間隔が必要なら外部スケジューラから Worker API を叩く
 - 推奨は `cron-job.org`
 - 代替は GitHub Actions または Cloudflare Workers Cron
 
@@ -118,14 +118,15 @@
 1. `main` マージ前に `npm test` / `npm run typecheck`
 2. Vercel Previewデプロイで以下確認
    - 動画登録
-   - job作成とdispatch
+   - `prepare` による job 継続実行
    - 学習画面表示
 3. Productionデプロイ
 4. デプロイ後30分の重点監視
    - jobs成功率
    - failed件数
    - P95生成時間
-5. 外部スケジューラの疎通確認
+5. Cron / 外部スケジューラの疎通確認
+   - `cron/jobs` が 2xx を返す
    - `dispatch` が 2xx を返す
    - `recover-stale` が 2xx を返す
    - Authorization header の設定ミスがない

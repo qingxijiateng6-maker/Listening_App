@@ -69,6 +69,23 @@ describe("registration -> queued job -> learning integration", () => {
         };
       }
 
+      if (url.endsWith("/api/materials/mat1/prepare")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: materials.get("mat1")?.status ?? "ready",
+            pipelineState: {
+              currentStep: "format",
+              lastCompletedStep: "format",
+              status: materials.get("mat1")?.status ?? "ready",
+              updatedAt: { seconds: 2, nanoseconds: 0 },
+              errorCode: "",
+              errorMessage: "",
+            },
+          }),
+        };
+      }
+
       if (url.endsWith("/api/materials/mat1")) {
         return {
           ok: true,
@@ -130,7 +147,7 @@ describe("registration -> queued job -> learning integration", () => {
     materials.set("mat1", {
       youtubeId: "dQw4w9WgXcQ",
       status: "ready",
-      pipelineVersion: "v1",
+      pipelineVersion: "v2",
     });
     segments.set("mat1", [
       {
