@@ -9,6 +9,7 @@ import type { MaterialStatus } from "@/types/domain";
 type CreateMaterialResponse = {
   error?: string;
   materialId?: string;
+  status?: MaterialStatus;
 };
 
 type PipelineState = {
@@ -25,6 +26,14 @@ type PrepareMaterialResponse = {
   status?: MaterialStatus;
   pipelineState?: PipelineState;
   shouldContinuePolling?: boolean;
+};
+
+type MaterialStatusResponse = {
+  error?: string;
+  status?: MaterialStatus;
+  material?: {
+    pipelineState?: PipelineState;
+  };
 };
 
 const PREPARE_POLL_INTERVAL_MS = 1500;
@@ -60,6 +69,32 @@ function buildPrepareErrorMessage(payload: PrepareMaterialResponse): string {
   return "字幕の準備を完了できませんでした。";
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T | null> {
+  const responseWithText = response as Response & { text?: () => Promise<string> };
+  if (typeof responseWithText.text === "function") {
+    try {
+      const body = await responseWithText.text();
+      if (!body.trim()) {
+        return null;
+      }
+      return JSON.parse(body) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  const responseWithJson = response as Response & { json?: () => Promise<unknown> };
+  if (typeof responseWithJson.json === "function") {
+    try {
+      return (await responseWithJson.json()) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 export function MaterialRegistrationLoadingScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -70,7 +105,6 @@ export function MaterialRegistrationLoadingScreen() {
   const [loadingMessage, setLoadingMessage] = useState("動画を登録して、字幕を準備しています。");
   const [showContinuePrompt, setShowContinuePrompt] = useState(false);
   const [hasShownContinuePrompt, setHasShownContinuePrompt] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,14 +131,19 @@ export function MaterialRegistrationLoadingScreen() {
           body: JSON.stringify({ youtubeUrl }),
         });
 
-        const payload = (await response.json()) as CreateMaterialResponse;
-        if (!response.ok || !payload.materialId) {
-          throw new Error(payload.error ?? "動画登録に失敗しました。");
+        const payload = await readJsonResponse<CreateMaterialResponse>(response);
+        if (!response.ok || !payload?.materialId) {
+          throw new Error(payload?.error ?? "動画登録に失敗しました。");
         }
 
         if (!cancelled) {
+          if (payload.status === "ready") {
+            router.replace(`/materials/${payload.materialId}`);
+            return;
+          }
+
           setMaterialId(payload.materialId);
-          setLoadingMessage("字幕を準備しています...");
+          setLoadingMessage(buildLoadingMessage(payload.status, undefined));
         }
       } catch (registrationError) {
         if (!cancelled) {
@@ -118,7 +157,7 @@ export function MaterialRegistrationLoadingScreen() {
     return () => {
       cancelled = true;
     };
-  }, [materialId, youtubeUrl]);
+  }, [materialId, router, youtubeUrl]);
 
   useEffect(() => {
     if (!materialId || error || showContinuePrompt) {
@@ -131,29 +170,35 @@ export function MaterialRegistrationLoadingScreen() {
     async function pollPrepare() {
       try {
         const authHeaders = await buildAuthenticatedRequestHeaders();
-        const response = await fetch(`/api/materials/${materialId}/prepare`, {
-          method: "POST",
+        const response = await fetch(`/api/materials/${materialId}`, {
+          method: "GET",
           headers: authHeaders,
         });
 
-        const payload = (await response.json()) as PrepareMaterialResponse;
+        const payload = await readJsonResponse<MaterialStatusResponse>(response);
         if (!response.ok) {
-          throw new Error(buildPrepareErrorMessage(payload));
+          throw new Error(payload?.error ?? "字幕の準備状況を確認できませんでした。");
         }
 
         if (cancelled) {
           return;
         }
 
-        setLoadingMessage(buildLoadingMessage(payload.status, payload.pipelineState));
+        setLoadingMessage(buildLoadingMessage(payload?.status, payload?.material?.pipelineState));
 
-        if (payload.status === "ready") {
+        if (payload?.status === "ready") {
           router.replace(`/materials/${materialId}`);
           return;
         }
 
-        if (payload.shouldContinuePolling === false) {
-          setError(buildPrepareErrorMessage(payload));
+        if (payload?.status === "failed" || payload?.status === "cancelled") {
+          setError(
+            buildPrepareErrorMessage({
+              error: payload.error,
+              status: payload.status,
+              pipelineState: payload.material?.pipelineState,
+            }),
+          );
           return;
         }
 
@@ -192,31 +237,8 @@ export function MaterialRegistrationLoadingScreen() {
     };
   }, [error, hasShownContinuePrompt, materialId, showContinuePrompt]);
 
-  async function handleCancel(): Promise<void> {
-    if (!materialId) {
-      router.replace("/");
-      return;
-    }
-
-    setIsCancelling(true);
-    try {
-      const authHeaders = await buildAuthenticatedRequestHeaders();
-      const response = await fetch(`/api/materials/${materialId}/cancel`, {
-        method: "POST",
-        headers: authHeaders,
-      });
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(payload?.error ?? "字幕生成の中止に失敗しました。");
-      }
-
-      router.replace("/");
-    } catch (cancelError) {
-      setError(cancelError instanceof Error ? cancelError.message : "字幕生成の中止に失敗しました。");
-      setIsCancelling(false);
-      setShowContinuePrompt(false);
-    }
+  function handleReturnHome(): void {
+    router.replace("/");
   }
 
   if (error) {
@@ -241,13 +263,13 @@ export function MaterialRegistrationLoadingScreen() {
         {showContinuePrompt ? (
           <div role="alertdialog" aria-labelledby="continue-caption-title" aria-describedby="continue-caption-body">
             <p id="continue-caption-title">字幕取得に時間がかかってしまいます。字幕生成を継続しますか？</p>
-            <p id="continue-caption-body">「はい」で待機を継続し、「いいえ」で字幕生成を中止してトップへ戻ります。</p>
+            <p id="continue-caption-body">「はい」で待機を継続し、「トップへ戻る」で待機画面を閉じます。字幕生成はバックグラウンドで継続します。</p>
             <div>
-              <button type="button" className="primaryCtaButton" onClick={() => setShowContinuePrompt(false)} disabled={isCancelling}>
+              <button type="button" className="primaryCtaButton" onClick={() => setShowContinuePrompt(false)}>
                 はい
               </button>
-              <button type="button" className="secondaryActionButton" onClick={() => void handleCancel()} disabled={isCancelling}>
-                {isCancelling ? "中止中..." : "いいえ"}
+              <button type="button" className="secondaryActionButton" onClick={handleReturnHome}>
+                トップへ戻る
               </button>
             </div>
           </div>

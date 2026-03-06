@@ -62,7 +62,7 @@ describe("registration -> queued job -> learning integration", () => {
           ok: true,
           json: async () => ({
             materialId: "mat1",
-            status: "ready",
+            status: "processing",
             reused: false,
           }),
         };
@@ -74,9 +74,15 @@ describe("registration -> queued job -> learning integration", () => {
           json: async () => ({
             material: {
               materialId: "mat1",
+              youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+              youtubeId: "dQw4w9WgXcQ",
+              title: "Sample",
+              channel: "Channel",
+              durationSec: 120,
+              pipelineVersion: "v2",
               ...(materials.get("mat1") ?? {}),
             },
-            status: materials.get("mat1")?.status ?? "queued",
+            status: materials.get("mat1")?.status ?? "ready",
           }),
         };
       }
@@ -105,7 +111,7 @@ describe("registration -> queued job -> learning integration", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    render(<VideoRegistrationForm />);
+    const registrationView = render(<VideoRegistrationForm />);
 
     fireEvent.change(screen.getByLabelText("Youtube URL"), {
       target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
@@ -118,11 +124,15 @@ describe("registration -> queued job -> learning integration", () => {
       );
     });
 
-    render(<MaterialRegistrationLoadingScreen />);
+    registrationView.unmount();
+
+    const loadingView = render(<MaterialRegistrationLoadingScreen />);
 
     await waitFor(() => {
       expect(replaceMock).toHaveBeenCalledWith("/materials/mat1");
     });
+
+    loadingView.unmount();
 
     materials.set("mat1", {
       youtubeId: "dQw4w9WgXcQ",
@@ -136,7 +146,7 @@ describe("registration -> queued job -> learning integration", () => {
       },
     ]);
 
-    render(<MaterialLearningScreen materialId="mat1" />);
+    const learningView = render(<MaterialLearningScreen materialId="mat1" />);
 
     await waitFor(() => {
       expect(screen.getByText("字幕")).toBeInTheDocument();
@@ -145,5 +155,7 @@ describe("registration -> queued job -> learning integration", () => {
       ).toBeInTheDocument();
       expect(screen.getByText("保存された表現")).toBeInTheDocument();
     });
+
+    learningView.unmount();
   }, 10000);
 });
