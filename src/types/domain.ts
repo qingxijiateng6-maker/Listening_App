@@ -1,9 +1,21 @@
 import type { Timestamp } from "firebase/firestore";
 
-export type MaterialStatus = "queued" | "processing" | "ready" | "failed";
+export type MaterialStatus = "queued" | "processing" | "ready" | "failed" | "cancelled";
 export type JobType = "material_pipeline";
-export type JobStatus = "queued" | "processing" | "done" | "failed";
+export type JobStatus = "queued" | "processing" | "done" | "failed" | "cancelled";
 export type JobStep = "meta" | "captions" | "format";
+
+export type MaterialPipelineState = {
+  currentStep: JobStep;
+  lastCompletedStep: JobStep | null;
+  status: MaterialStatus;
+  updatedAt: Timestamp;
+  currentStepStartedAt?: Timestamp;
+  requiresContinuationConfirmation?: boolean;
+  continuationConfirmedAt?: Timestamp | null;
+  errorCode?: string;
+  errorMessage?: string;
+};
 
 export type Material = {
   youtubeUrl: string;
@@ -13,6 +25,7 @@ export type Material = {
   durationSec: number;
   status: MaterialStatus;
   pipelineVersion: string;
+  pipelineState?: MaterialPipelineState;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 };

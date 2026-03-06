@@ -1,28 +1,68 @@
-﻿import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildYtDlpVideoInfoArgs,
+  createTimedTextCaptionProvider,
   createUnavailableCaptionProvider,
   formatCaptionCues,
+  getMaterialPipelineCaptionProvider,
   parseCaptionPayload,
   parseJson3Captions,
+  parseTimedTextXmlCaptions,
   parseTtmlCaptions,
   parseWebVttCaptions,
-  resolveYtDlpInvocations,
 } from "@/lib/jobs/materialPipelineCaptions";
 
+function textResponse(body: string, init?: ResponseInit): Response {
+  return new Response(body, init);
+}
+
+function jsonResponse(payload: unknown, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(payload), {
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    status: init?.status,
+    statusText: init?.statusText,
+  });
+}
+
 describe("formatCaptionCues", () => {
-  it("normalizes, sorts, and deduplicates caption cues before segment persistence", () => {
+  it("normalizes, deduplicates, and merges nearby cues until a sentence boundary", () => {
     const segments = formatCaptionCues([
-      { startMs: 2000.4, endMs: 3000.2, text: "  Take   ownership  " },
       { startMs: 0, endMs: 900, text: "Move   forward" },
-      { startMs: 2000, endMs: 3000, text: "Take ownership" },
-      { startMs: 4000, endMs: 4000, text: "ignored" },
-      { startMs: 5000, endMs: 5200, text: "   " },
+      { startMs: 1000, endMs: 1700, text: "together" },
+      { startMs: 1800, endMs: 2600, text: "  Done. " },
+      { startMs: 1800, endMs: 2600, text: "Done." },
+      { startMs: 3000, endMs: 3600, text: "Next" },
+      { startMs: 3900, endMs: 4500, text: "segment" },
+      { startMs: 3900, endMs: 4500, text: "segment" },
+      { startMs: 5000, endMs: 5000, text: "ignored" },
     ]);
 
     expect(segments).toEqual([
-      { id: "seg-0001", startMs: 0, endMs: 900, text: "Move forward" },
-      { id: "seg-0002", startMs: 2000, endMs: 3000, text: "Take ownership" },
+      { id: "seg-0001", startMs: 0, endMs: 2600, text: "Move forward together Done." },
+      { id: "seg-0002", startMs: 3000, endMs: 4500, text: "Next segment" },
+    ]);
+  });
+
+  it("stops merging when gap, duration, or text length limits are exceeded", () => {
+    const longText = "x".repeat(216);
+
+    const segments = formatCaptionCues([
+      { startMs: 0, endMs: 2800, text: "Alpha" },
+      { startMs: 3000, endMs: 6200, text: "Beta" },
+      { startMs: 6500, endMs: 7600, text: "Gamma" },
+      { startMs: 8800, endMs: 9300, text: "Delta" },
+      { startMs: 9500, endMs: 10100, text: longText },
+      { startMs: 10200, endMs: 10700, text: "tail" },
+    ]);
+
+    expect(segments).toEqual([
+      { id: "seg-0001", startMs: 0, endMs: 6200, text: "Alpha Beta" },
+      { id: "seg-0002", startMs: 6500, endMs: 7600, text: "Gamma" },
+      { id: "seg-0003", startMs: 8800, endMs: 9300, text: "Delta" },
+      { id: "seg-0004", startMs: 9500, endMs: 10100, text: longText },
+      { id: "seg-0005", startMs: 10200, endMs: 10700, text: "tail" },
     ]);
   });
 });
@@ -44,20 +84,28 @@ describe("parseJson3Captions", () => {
     ]);
   });
 
-  it("strips bom and html entities from json3 subtitle payloads", () => {
+  it("infers duration from the next event when json3 omits dDurationMs", () => {
     expect(
       parseJson3Captions(
-        `\uFEFF${JSON.stringify({
-          events: [{ tStartMs: 0, dDurationMs: 700, segs: [{ utf8: "Tom &amp; Jerry" }] }],
-        })}`,
+        JSON.stringify({
+          events: [
+            { tStartMs: 0, segs: [{ utf8: "Hello" }] },
+            { tStartMs: 900, dDurationMs: 600, segs: [{ utf8: "world" }] },
+          ],
+        }),
       ),
-    ).toEqual([{ startMs: 0, endMs: 700, text: "Tom & Jerry" }]);
+    ).toEqual([
+      { startMs: 0, endMs: 900, text: "Hello" },
+      { startMs: 900, endMs: 1500, text: "world" },
+    ]);
   });
 });
 
 describe("parseWebVttCaptions", () => {
   it("parses vtt cues and drops malformed entries", () => {
-    const cues = parseWebVttCaptions(`WEBVTT\n\n00:00:00.000 --> 00:00:01.200\nHello <c.colorE5E5E5>world</c>\n\ninvalid\n\n00:00:01.500 --> 00:00:02.300 align:start\nNext line\n`);
+    const cues = parseWebVttCaptions(
+      "WEBVTT\n\n00:00:00.000 --> 00:00:01.200\nHello <c.colorE5E5E5>world</c>\n\ninvalid\n\n00:00:01.500 --> 00:00:02.300 align:start\nNext line\n",
+    );
 
     expect(cues).toEqual([
       { startMs: 0, endMs: 1200, text: "Hello world" },
@@ -68,9 +116,24 @@ describe("parseWebVttCaptions", () => {
 
 describe("parseTtmlCaptions", () => {
   it("parses ttml cues", () => {
-    const cues = parseTtmlCaptions(`<?xml version="1.0"?><tt><body><div><p begin="00:00:01.000" end="00:00:02.200">First<br/>line</p></div></body></tt>`);
+    const cues = parseTtmlCaptions(
+      '<?xml version="1.0"?><tt><body><div><p begin="00:00:01.000" end="00:00:02.200">First<br/>line</p></div></body></tt>',
+    );
 
     expect(cues).toEqual([{ startMs: 1000, endMs: 2200, text: "First line" }]);
+  });
+});
+
+describe("parseTimedTextXmlCaptions", () => {
+  it("parses legacy timedtext xml transcript payloads", () => {
+    expect(
+      parseTimedTextXmlCaptions(
+        '<transcript><text start="1.5" dur="0.8">Tom &amp; Jerry</text><text start="2.5" dur="0.7">Next</text></transcript>',
+      ),
+    ).toEqual([
+      { startMs: 1500, endMs: 2300, text: "Tom & Jerry" },
+      { startMs: 2500, endMs: 3200, text: "Next" },
+    ]);
   });
 });
 
@@ -80,64 +143,182 @@ describe("parseCaptionPayload", () => {
       { startMs: 0, endMs: 500, text: "A" },
     ]);
 
-    expect(parseCaptionPayload('{"events":[{"tStartMs":0,"dDurationMs":400,"segs":[{"utf8":"B"}]}]}', "application/json", "json3")).toEqual([
-      { startMs: 0, endMs: 400, text: "B" },
-    ]);
+    expect(
+      parseCaptionPayload(
+        '{"events":[{"tStartMs":0,"dDurationMs":400,"segs":[{"utf8":"B"}]}]}',
+        "application/json",
+        "json3",
+      ),
+    ).toEqual([{ startMs: 0, endMs: 400, text: "B" }]);
+
+    expect(
+      parseCaptionPayload('<transcript><text start="0.0" dur="0.5">C</text></transcript>', "application/xml"),
+    ).toEqual([{ startMs: 0, endMs: 500, text: "C" }]);
   });
 });
 
-describe("buildYtDlpVideoInfoArgs", () => {
+describe("caption provider", () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  it("requests subtitle tracks with fallback formats", () => {
-    const args = buildYtDlpVideoInfoArgs("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  it("fetches captions via watch html, innertube player, and fmt=json3", async () => {
+    const fetchMock = vi.fn<
+      typeof fetch
+    >();
+    vi.stubGlobal("fetch", fetchMock);
 
-    expect(args).toContain("--write-subs");
-    expect(args).toContain("--write-auto-subs");
-    expect(args).toContain("--sub-langs");
-    expect(args).toContain("--sub-format");
-    expect(args).toContain("json3/srv3/vtt/ttml");
+    fetchMock
+      .mockResolvedValueOnce(
+        textResponse('<html>"INNERTUBE_API_KEY":"api-key","VISITOR_DATA":"visitor-token"</html>'),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          videoDetails: {
+            title: "Deep Listening",
+            author: "Open Channel",
+            lengthSeconds: "7200",
+          },
+          captions: {
+            playerCaptionsTracklistRenderer: {
+              captionTracks: [
+                {
+                  baseUrl: "https://www.youtube.com/api/timedtext?v=abc123&lang=en",
+                  languageCode: "en",
+                  name: { simpleText: "English" },
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        textResponse(
+          JSON.stringify({
+            events: [{ tStartMs: 0, dDurationMs: 900, segs: [{ utf8: "hello world" }] }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    const provider = createTimedTextCaptionProvider();
+    const result = await provider.fetchCaptions({
+      materialId: "mat-1",
+      youtubeId: "abc123",
+      youtubeUrl: "https://www.youtube.com/watch?v=abc123",
+    });
+
+    expect(result).toEqual({
+      status: "fetched",
+      source: "youtube_captions",
+      cues: [{ startMs: 0, endMs: 900, text: "hello world" }],
+      metadata: {
+        title: "Deep Listening",
+        channel: "Open Channel",
+        durationSec: 7200,
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/youtubei/v1/player?key=api-key");
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("fmt=json3");
+
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(body.videoId).toBe("abc123");
   });
 
-  it("adds browser cookies when configured", () => {
-    vi.stubEnv("YT_DLP_COOKIES_FROM_BROWSER", "chrome");
+  it("falls back to ytInitialPlayerResponse parsing when innertube is unavailable", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
 
-    const args = buildYtDlpVideoInfoArgs("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    fetchMock
+      .mockResolvedValueOnce(
+        textResponse(
+          `<html><script>var ytInitialPlayerResponse = ${JSON.stringify({
+            videoDetails: {
+              title: "Fallback Video",
+              author: "Fallback Channel",
+              lengthSeconds: "42",
+            },
+            captions: {
+              playerCaptionsTracklistRenderer: {
+                captionTracks: [
+                  {
+                    baseUrl: "https://www.youtube.com/api/timedtext?v=fallback&lang=en",
+                    languageCode: "en",
+                    name: { simpleText: "English" },
+                  },
+                ],
+              },
+            },
+          })};</script></html>`,
+        ),
+      )
+      .mockResolvedValueOnce(
+        textResponse(
+          JSON.stringify({
+            events: [{ tStartMs: 0, dDurationMs: 500, segs: [{ utf8: "fallback cue" }] }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
 
-    expect(args).toContain("--cookies-from-browser");
-    expect(args).toContain("chrome");
+    const provider = getMaterialPipelineCaptionProvider();
+    const result = await provider.fetchCaptions({
+      materialId: "mat-2",
+      youtubeId: "fallback",
+      youtubeUrl: "https://www.youtube.com/watch?v=fallback",
+    });
+
+    expect(result).toEqual({
+      status: "fetched",
+      source: "youtube_captions",
+      cues: [{ startMs: 0, endMs: 500, text: "fallback cue" }],
+      metadata: {
+        title: "Fallback Video",
+        channel: "Fallback Channel",
+        durationSec: 42,
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("fmt=json3");
   });
 
-  it("prefers cookie file over browser cookies", () => {
-    vi.stubEnv("YT_DLP_COOKIES_FROM_BROWSER", "chrome");
-    vi.stubEnv("YT_DLP_COOKIES_PATH", "C:/tmp/youtube-cookies.txt");
+  it("returns captions_not_found when the video exposes no caption tracks", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
 
-    const args = buildYtDlpVideoInfoArgs("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    fetchMock.mockResolvedValueOnce(
+      textResponse(
+        `<html><script>var ytInitialPlayerResponse = ${JSON.stringify({
+          videoDetails: {
+            title: "No Captions",
+            author: "Silent Channel",
+            lengthSeconds: "60",
+          },
+        })};</script></html>`,
+      ),
+    );
 
-    expect(args).toContain("--cookies");
-    expect(args).toContain("C:/tmp/youtube-cookies.txt");
-    expect(args).not.toContain("--cookies-from-browser");
+    const provider = getMaterialPipelineCaptionProvider();
+    await expect(
+      provider.fetchCaptions({
+        materialId: "mat-3",
+        youtubeId: "nocaptions",
+        youtubeUrl: "https://www.youtube.com/watch?v=nocaptions",
+      }),
+    ).resolves.toEqual({
+      status: "unavailable",
+      source: "youtube_captions",
+      reason: "captions_not_found",
+      message: "No YouTube captions were available for this video.",
+    });
   });
 });
 
-describe("resolveYtDlpInvocations", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("adds python fallbacks when configured command is python3 -m yt_dlp", () => {
-    vi.stubEnv("YT_DLP_PATH", "python3 -m yt_dlp");
-
-    expect(resolveYtDlpInvocations()).toEqual([
-      { command: "python3", args: ["-m", "yt_dlp"] },
-      { command: "yt-dlp", args: [] },
-      { command: "python", args: ["-m", "yt_dlp"] },
-      { command: "py", args: ["-m", "yt_dlp"] },
-    ]);
-  });
-});
 describe("createUnavailableCaptionProvider", () => {
   it("returns an explicit unavailable result until a real YouTube captions fetcher is wired in", async () => {
     const provider = createUnavailableCaptionProvider();
@@ -156,7 +337,3 @@ describe("createUnavailableCaptionProvider", () => {
     });
   });
 });
-
-
-
-

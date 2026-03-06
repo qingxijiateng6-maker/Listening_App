@@ -1,5 +1,6 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
+import { MATERIAL_PIPELINE_BATCH_WRITE_LIMIT } from "@/lib/constants";
 import {
   formatCaptionCues,
   getMaterialPipelineCaptionProvider,
@@ -24,10 +25,24 @@ type PipelineState = {
 type MaterialRecord = {
   youtubeId: string;
   youtubeUrl: string;
+  status?: "queued" | "processing" | "ready" | "failed" | "cancelled";
   title?: string;
   channel?: string;
   durationSec?: number;
 };
+
+export class MaterialPipelineCancelledError extends Error {
+  readonly code = "material_pipeline_cancelled";
+
+  constructor(materialId: string) {
+    super(`Material pipeline cancelled for ${materialId}.`);
+    this.name = "MaterialPipelineCancelledError";
+  }
+}
+
+export function isMaterialPipelineCancelledError(error: unknown): error is MaterialPipelineCancelledError {
+  return error instanceof MaterialPipelineCancelledError;
+}
 
 function nowTs(): Timestamp {
   return Timestamp.now();
@@ -93,30 +108,59 @@ async function readMaterial(materialId: string): Promise<MaterialRecord> {
   return material;
 }
 
+async function throwIfMaterialCancelled(materialId: string): Promise<void> {
+  const snapshot = await getAdminDb().collection("materials").doc(materialId).get();
+  if (!snapshot.exists) {
+    throw new Error(`Material not found: ${materialId}`);
+  }
+
+  const material = snapshot.data() as MaterialRecord;
+  if (material.status === "cancelled") {
+    throw new MaterialPipelineCancelledError(materialId);
+  }
+}
+
 async function replaceSegments(materialId: string, segments: FormattedSegment[]): Promise<void> {
   const db = getAdminDb();
   const segmentsCollection = db.collection("materials").doc(materialId).collection("segments");
   const existingSnapshot = await segmentsCollection.get();
-  const batch = db.batch();
+  let batch = db.batch();
+  let operationCount = 0;
 
-  existingSnapshot.docs.forEach((docSnapshot) => {
+  async function commitBatchIfNeeded(force = false) {
+    if (operationCount === 0 || (!force && operationCount < MATERIAL_PIPELINE_BATCH_WRITE_LIMIT)) {
+      return;
+    }
+
+    await batch.commit();
+    batch = db.batch();
+    operationCount = 0;
+  }
+
+  for (const docSnapshot of existingSnapshot.docs) {
     batch.delete(docSnapshot.ref);
-  });
+    operationCount += 1;
+    await commitBatchIfNeeded();
+  }
 
-  segments.forEach((segment) => {
+  for (const segment of segments) {
     batch.set(segmentsCollection.doc(segment.id), {
       startMs: segment.startMs,
       endMs: segment.endMs,
       text: segment.text,
     });
-  });
+    operationCount += 1;
+    await commitBatchIfNeeded();
+  }
 
-  await batch.commit();
+  await commitBatchIfNeeded(true);
 }
 
 async function runMeta(materialId: string, pipelineVersion: string): Promise<void> {
+  await throwIfMaterialCancelled(materialId);
   const state = await readState(materialId, pipelineVersion);
   const material = await readMaterial(materialId);
+  await throwIfMaterialCancelled(materialId);
 
   await writeState(materialId, pipelineVersion, {
     ...state,
@@ -132,6 +176,7 @@ async function runMeta(materialId: string, pipelineVersion: string): Promise<voi
 }
 
 async function runCaptions(materialId: string, pipelineVersion: string): Promise<void> {
+  await throwIfMaterialCancelled(materialId);
   const state = await readState(materialId, pipelineVersion);
   const materialMeta =
     state.meta ??
@@ -144,6 +189,7 @@ async function runCaptions(materialId: string, pipelineVersion: string): Promise
     youtubeId: materialMeta.youtubeId,
     youtubeUrl: materialMeta.youtubeUrl,
   });
+  await throwIfMaterialCancelled(materialId);
 
   if (captions.status !== "fetched") {
     if (captions.reason === "captions_not_found") {
@@ -157,6 +203,7 @@ async function runCaptions(materialId: string, pipelineVersion: string): Promise
     throw new Error(captions.message);
   }
 
+  await throwIfMaterialCancelled(materialId);
   await getAdminDb().collection("materials").doc(materialId).set(
     {
       title: captions.metadata?.title ?? materialMeta.title,
@@ -167,6 +214,7 @@ async function runCaptions(materialId: string, pipelineVersion: string): Promise
     { merge: true },
   );
 
+  await throwIfMaterialCancelled(materialId);
   await writeState(materialId, pipelineVersion, {
     ...state,
     captions,
@@ -175,6 +223,7 @@ async function runCaptions(materialId: string, pipelineVersion: string): Promise
 }
 
 async function runFormat(materialId: string, pipelineVersion: string): Promise<void> {
+  await throwIfMaterialCancelled(materialId);
   const state = await readState(materialId, pipelineVersion);
   if (!state.captions) {
     throw new Error(`Captions step must run before format for material ${materialId}.`);
@@ -183,7 +232,9 @@ async function runFormat(materialId: string, pipelineVersion: string): Promise<v
   const formattedSegments =
     state.captions.status === "fetched" ? formatCaptionCues(state.captions.cues) : [];
 
+  await throwIfMaterialCancelled(materialId);
   await replaceSegments(materialId, formattedSegments);
+  await throwIfMaterialCancelled(materialId);
   await writeState(materialId, pipelineVersion, {
     ...state,
     formattedSegmentCount: formattedSegments.length,
