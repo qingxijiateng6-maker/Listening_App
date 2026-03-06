@@ -33,11 +33,30 @@ describe("MaterialRegistrationLoadingScreen", () => {
     vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("shows loading text and routes to the material page after registration", async () => {
+  it("polls the material status after registration and routes to the material page when ready", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         materialId: "mat1",
+        status: "processing",
+      }),
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        material: {
+          materialId: "mat1",
+          youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          youtubeId: "dQw4w9WgXcQ",
+          title: "Sample",
+          channel: "Channel",
+          durationSec: 120,
+          status: "ready",
+          pipelineVersion: "v2",
+          createdAt: { seconds: 1, nanoseconds: 0 },
+          updatedAt: { seconds: 2, nanoseconds: 0 },
+        },
+        status: "ready",
       }),
     });
 
@@ -57,7 +76,38 @@ describe("MaterialRegistrationLoadingScreen", () => {
           }),
         }),
       );
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/materials/mat1",
+        expect.objectContaining({
+          method: "GET",
+          headers: expect.objectContaining({
+            "x-user-id": "u1",
+            authorization: "Bearer token-1",
+          }),
+        }),
+      );
       expect(replaceMock).toHaveBeenCalledWith("/materials/mat1");
+    });
+  });
+
+  it("shows a fallback error when the polling response has no JSON body", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        materialId: "mat1",
+        status: "processing",
+      }),
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      text: async () => "",
+    });
+
+    render(<MaterialRegistrationLoadingScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText("登録エラー")).toBeInTheDocument();
+      expect(screen.getByText("字幕の準備状況を確認できませんでした。")).toBeInTheDocument();
     });
   });
 });
