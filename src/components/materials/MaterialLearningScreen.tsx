@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import type { Material, Segment } from "@/types/domain";
 import { YouTubeIFramePlayer } from "@/components/materials/YouTubeIFramePlayer";
 import { buildAuthenticatedRequestHeaders } from "@/lib/firebase/auth";
@@ -76,6 +77,7 @@ function findActiveSegmentId(segments: SegmentWithId[], currentMs: number): stri
 }
 
 export function MaterialLearningScreen({ materialId }: Props) {
+  const router = useRouter();
   const [material, setMaterial] = useState<Material | null>(null);
   const [segments, setSegments] = useState<SegmentWithId[]>([]);
   const [savedExpressions, setSavedExpressions] = useState<SavedExpressionRecord[]>([]);
@@ -91,13 +93,12 @@ export function MaterialLearningScreen({ materialId }: Props) {
   const [formExampleSentence, setFormExampleSentence] = useState<string>("");
   const [isSavingExpression, setIsSavingExpression] = useState<boolean>(false);
   const [deletingExpressionId, setDeletingExpressionId] = useState<string>("");
-  const [reloadTick, setReloadTick] = useState<number>(0);
+  const [redirectingToLoading, setRedirectingToLoading] = useState<boolean>(false);
   const playerSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
     const controller = new AbortController();
-    let retryTimeoutId: number | null = null;
 
     async function fetchJson<T>(url: string): Promise<T> {
       const authHeaders = await buildAuthenticatedRequestHeaders();
@@ -129,11 +130,27 @@ export function MaterialLearningScreen({ materialId }: Props) {
     async function loadLearningData() {
       setLoading(true);
       setError("");
+      setRedirectingToLoading(false);
+      setMaterial(null);
+      setSegments([]);
+      setSavedExpressions([]);
       setLoadingLabel("教材データを読み込んでいます...");
       try {
-        setLoadingLabel("教材・字幕を取得しています...");
-        const [materialPayload, segmentsPayload, expressionsPayload] = await Promise.all([
-          fetchJson<MaterialApiResponse>(`/api/materials/${materialId}`),
+        const materialPayload = await fetchJson<MaterialApiResponse>(`/api/materials/${materialId}`);
+
+        if (!mounted) {
+          return;
+        }
+
+        if (materialPayload.status !== "ready") {
+          setLoadingLabel("字幕を準備しています...");
+          setRedirectingToLoading(true);
+          router.replace(`/materials/loading?materialId=${encodeURIComponent(materialId)}`);
+          return;
+        }
+
+        setLoadingLabel("字幕と保存済み表現を取得しています...");
+        const [segmentsPayload, expressionsPayload] = await Promise.all([
           fetchJson<SegmentsApiResponse>(`/api/materials/${materialId}/segments`),
           fetchJson<ExpressionsApiResponse>(`/api/materials/${materialId}/expressions`),
         ]);
@@ -157,15 +174,6 @@ export function MaterialLearningScreen({ materialId }: Props) {
         setSegments(nextSegments);
         setSavedExpressions(visibleExpressions);
         setSelectedSegmentId(nextSegments[0]?.id ?? "");
-
-        if (materialPayload.status === "queued" || materialPayload.status === "processing") {
-          setLoadingLabel("字幕を準備しています...");
-          retryTimeoutId = window.setTimeout(() => {
-            if (mounted) {
-              setReloadTick((current) => current + 1);
-            }
-          }, 2000);
-        }
 
         if (blankExpressions.length > 0) {
           const authHeaders = await buildAuthenticatedRequestHeaders();
@@ -193,11 +201,8 @@ export function MaterialLearningScreen({ materialId }: Props) {
     return () => {
       mounted = false;
       controller.abort();
-      if (retryTimeoutId !== null) {
-        window.clearTimeout(retryTimeoutId);
-      }
     };
-  }, [materialId, reloadTick]);
+  }, [materialId, router]);
 
   const selectedSegment = useMemo(
     () => segments.find((segment) => segment.id === selectedSegmentId) ?? null,
@@ -213,12 +218,6 @@ export function MaterialLearningScreen({ materialId }: Props) {
     [activeSegmentId, segments],
   );
   const emptyStateContent = useMemo(() => {
-    if (material?.status === "queued" || material?.status === "processing") {
-      return {
-        title: "字幕を生成中です",
-        description: "この画面は自動で更新されます。数秒お待ちください。",
-      };
-    }
     if (material?.status === "failed") {
       return {
         title: "字幕を取得できませんでした",
@@ -342,7 +341,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
     <main className="learningScreen">
       <div className="learningScreenGlow" aria-hidden="true" />
       <div className="learningScreenContent">
-        {loading ? (
+        {loading || redirectingToLoading ? (
           <section className="learningStateCard loading" aria-live="polite">
             <h2>読み込み中</h2>
             <p>{loadingLabel}</p>
@@ -562,7 +561,7 @@ export function MaterialLearningScreen({ materialId }: Props) {
             </section>
           </div>
         ) : null}
-        {!loading && !error && !material ? (
+        {!loading && !redirectingToLoading && !error && !material ? (
           <section className="learningStateCard empty">
             <h2>教材が見つかりません</h2>
             <p>登録状況を確認してから、もう一度開いてください。</p>
