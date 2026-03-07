@@ -442,6 +442,7 @@ describe("caption provider", () => {
     fetchMock
       .mockResolvedValueOnce(textResponse(noCaptionBody))
       .mockResolvedValueOnce(textResponse(noCaptionBody))
+      .mockResolvedValueOnce(textResponse(noCaptionBody))
       .mockResolvedValueOnce(textResponse(noCaptionBody));
 
     const provider = getMaterialPipelineCaptionProvider();

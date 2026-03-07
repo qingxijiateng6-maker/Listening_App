@@ -125,6 +125,8 @@ const DEFAULT_WEB_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
 const DEFAULT_MOBILE_WEB_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1";
+const DEFAULT_YOUTUBE_COOKIE_HEADER =
+  "CONSENT=YES+cb.20210328-17-p0.en+FX; SOCS=CAI; PREF=hl=en&gl=US";
 const DEFAULT_MERGE_MAX_GAP_MS = 900;
 const DEFAULT_MERGE_MAX_DURATION_MS = 7_000;
 const DEFAULT_MERGE_MAX_TEXT_LENGTH = 220;
@@ -172,6 +174,14 @@ function getWebUserAgent(): string {
   return readEnvString("YT_CAPTION_USER_AGENT") ?? readEnvString("YT_DLP_USER_AGENT") ?? DEFAULT_WEB_USER_AGENT;
 }
 
+function getYouTubeCookieHeader(): string {
+  return (
+    readEnvString("YT_CAPTION_COOKIE_HEADER") ??
+    readEnvString("YT_DLP_COOKIE_HEADER") ??
+    DEFAULT_YOUTUBE_COOKIE_HEADER
+  );
+}
+
 function decodeHtmlEntities(text: string): string {
   return text
     .replace(/&nbsp;/gi, " ")
@@ -197,10 +207,13 @@ function normalizeCaptionText(text: string): string {
 function buildRequestHeaders(options?: {
   userAgent?: string;
   referer?: string;
+  accept?: string;
   extra?: Record<string, string | undefined>;
 }): HeadersInit {
   const headers: Record<string, string> = {
+    accept: options?.accept ?? "*/*",
     "accept-language": "en-US,en;q=0.9",
+    cookie: getYouTubeCookieHeader(),
     "user-agent": options?.userAgent ?? getWebUserAgent(),
   };
 
@@ -554,6 +567,14 @@ function buildEmbedPageUrl(youtubeId: string): string {
   return url.toString();
 }
 
+function buildNoCookieEmbedPageUrl(youtubeId: string): string {
+  const url = new URL(`https://www.youtube-nocookie.com/embed/${youtubeId}`);
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("cc_lang_pref", "en");
+  url.searchParams.set("cc_load_policy", "1");
+  return url.toString();
+}
+
 function extractBalancedJsonObject(text: string, startIndex: number): string | null {
   let depth = 0;
   let inString = false;
@@ -737,6 +758,7 @@ async function fetchInnertubePlayerResponse(
       {
         method: "POST",
         headers: buildRequestHeaders({
+          accept: "application/json, text/plain, */*",
           userAgent: clientConfig.userAgent,
           referer: sourceUrl,
           extra: {
@@ -797,6 +819,7 @@ async function fetchPlayerResponseFromHtmlSource(input: {
 }): Promise<WatchPagePlayerResponse | null> {
   const response = await fetchResponseWithRetries(input.sourceUrl, {
     headers: buildRequestHeaders({
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       referer: input.referer,
       userAgent: input.userAgent,
     }),
@@ -866,6 +889,12 @@ async function fetchWatchPagePlayerResponse(
       sourceLabel: "embed",
       sourceUrl: buildEmbedPageUrl(youtubeId),
       referer: "https://www.youtube.com/",
+      userAgent: getWebUserAgent(),
+    },
+    {
+      sourceLabel: "nocookie_embed",
+      sourceUrl: buildNoCookieEmbedPageUrl(youtubeId),
+      referer: "https://www.youtube-nocookie.com/",
       userAgent: getWebUserAgent(),
     },
   ];
