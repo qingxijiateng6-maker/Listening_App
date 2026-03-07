@@ -229,6 +229,79 @@ describe("caption provider", () => {
     expect(body.videoId).toBe("abc123");
   });
 
+  it("falls back to the iOS innertube client when Android returns no caption tracks", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    fetchMock
+      .mockResolvedValueOnce(
+        textResponse('<html>"INNERTUBE_API_KEY":"api-key","VISITOR_DATA":"visitor-token"</html>'),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          videoDetails: {
+            title: "Android Miss",
+            author: "Open Channel",
+            lengthSeconds: "7200",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          videoDetails: {
+            title: "iOS Hit",
+            author: "Open Channel",
+            lengthSeconds: "7200",
+          },
+          captions: {
+            playerCaptionsTracklistRenderer: {
+              captionTracks: [
+                {
+                  baseUrl: "https://www.youtube.com/api/timedtext?v=abc123&lang=en",
+                  languageCode: "en",
+                  name: { simpleText: "English" },
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        textResponse(
+          JSON.stringify({
+            events: [{ tStartMs: 0, dDurationMs: 900, segs: [{ utf8: "ios fallback cue" }] }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    const provider = createTimedTextCaptionProvider();
+    const result = await provider.fetchCaptions({
+      materialId: "mat-ios",
+      youtubeId: "abc123",
+      youtubeUrl: "https://www.youtube.com/watch?v=abc123",
+    });
+
+    expect(result).toEqual({
+      status: "fetched",
+      source: "youtube_captions",
+      cues: [{ startMs: 0, endMs: 900, text: "ios fallback cue" }],
+      metadata: {
+        title: "iOS Hit",
+        channel: "Open Channel",
+        durationSec: 7200,
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      "x-youtube-client-name": "3",
+    });
+    expect(fetchMock.mock.calls[2]?.[1]?.headers).toMatchObject({
+      "x-youtube-client-name": "5",
+    });
+  });
+
   it("falls back to ytInitialPlayerResponse parsing when innertube is unavailable", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);

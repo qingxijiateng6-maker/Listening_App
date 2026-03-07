@@ -101,6 +101,13 @@ type InnertubeContext = {
   visitorData?: string;
 };
 
+type InnertubeClientConfig = {
+  body: Record<string, unknown>;
+  clientNameHeader: string;
+  clientVersionHeader: string;
+  userAgent: string;
+};
+
 const DEFAULT_CAPTION_FETCH_TIMEOUT_MS = 8_000;
 const DEFAULT_CAPTION_FETCH_RETRIES = 1;
 const MAX_CAPTION_PAYLOAD_BYTES = 16 * 1024 * 1024;
@@ -109,6 +116,10 @@ const DEFAULT_ANDROID_INNERTUBE_CLIENT_NAME = "3";
 const DEFAULT_ANDROID_INNERTUBE_CLIENT_VERSION = "21.02.35";
 const DEFAULT_ANDROID_INNERTUBE_USER_AGENT =
   "com.google.android.youtube/21.02.35 (Linux; U; Android 11) gzip";
+const DEFAULT_IOS_INNERTUBE_CLIENT_NAME = "5";
+const DEFAULT_IOS_INNERTUBE_CLIENT_VERSION = "21.02.35";
+const DEFAULT_IOS_INNERTUBE_USER_AGENT =
+  "com.google.ios.youtube/21.02.35 (iPhone16,2; U; CPU iOS 18_3 like Mac OS X)";
 const DEFAULT_WEB_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
 const DEFAULT_MOBILE_WEB_USER_AGENT =
@@ -656,6 +667,27 @@ function buildAndroidPlayerRequestBody(youtubeId: string, visitorData?: string):
   });
 }
 
+function buildIosPlayerRequestBody(youtubeId: string, visitorData?: string): string {
+  return JSON.stringify({
+    context: {
+      client: {
+        clientName: "IOS",
+        clientVersion: DEFAULT_IOS_INNERTUBE_CLIENT_VERSION,
+        deviceModel: "iPhone16,2",
+        osName: "iPhone",
+        osVersion: "18.3.1.22D72",
+        userAgent: DEFAULT_IOS_INNERTUBE_USER_AGENT,
+        hl: "en",
+        gl: "US",
+        visitorData,
+      },
+    },
+    videoId: youtubeId,
+    contentCheckOk: true,
+    racyCheckOk: true,
+  });
+}
+
 async function fetchInnertubePlayerResponse(
   youtubeId: string,
   sourceUrl: string,
@@ -665,31 +697,61 @@ async function fetchInnertubePlayerResponse(
     return null;
   }
 
-  const response = await fetchResponseWithRetries(`https://www.youtube.com/youtubei/v1/player?key=${context.apiKey}`, {
-    method: "POST",
-    headers: buildRequestHeaders({
+  const clientConfigs: InnertubeClientConfig[] = [
+    {
+      body: JSON.parse(buildAndroidPlayerRequestBody(youtubeId, context.visitorData)) as Record<string, unknown>,
+      clientNameHeader: DEFAULT_ANDROID_INNERTUBE_CLIENT_NAME,
+      clientVersionHeader: DEFAULT_ANDROID_INNERTUBE_CLIENT_VERSION,
       userAgent: DEFAULT_ANDROID_INNERTUBE_USER_AGENT,
-      referer: sourceUrl,
-      extra: {
-        "content-type": "application/json",
-        origin: "https://www.youtube.com",
-        "x-goog-visitor-id": context.visitorData,
-        "x-youtube-client-name": DEFAULT_ANDROID_INNERTUBE_CLIENT_NAME,
-        "x-youtube-client-version": DEFAULT_ANDROID_INNERTUBE_CLIENT_VERSION,
+    },
+    {
+      body: JSON.parse(buildIosPlayerRequestBody(youtubeId, context.visitorData)) as Record<string, unknown>,
+      clientNameHeader: DEFAULT_IOS_INNERTUBE_CLIENT_NAME,
+      clientVersionHeader: DEFAULT_IOS_INNERTUBE_CLIENT_VERSION,
+      userAgent: DEFAULT_IOS_INNERTUBE_USER_AGENT,
+    },
+  ];
+
+  let fallbackResponse: WatchPagePlayerResponse | null = null;
+
+  for (const clientConfig of clientConfigs) {
+    const response = await fetchResponseWithRetries(
+      `https://www.youtube.com/youtubei/v1/player?key=${context.apiKey}`,
+      {
+        method: "POST",
+        headers: buildRequestHeaders({
+          userAgent: clientConfig.userAgent,
+          referer: sourceUrl,
+          extra: {
+            "content-type": "application/json",
+            origin: "https://www.youtube.com",
+            "x-goog-visitor-id": context.visitorData,
+            "x-youtube-client-name": clientConfig.clientNameHeader,
+            "x-youtube-client-version": clientConfig.clientVersionHeader,
+          },
+        }),
+        body: JSON.stringify(clientConfig.body),
       },
-    }),
-    body: buildAndroidPlayerRequestBody(youtubeId, context.visitorData),
-  });
+    );
 
-  if (!response.ok) {
-    return null;
+    if (!response.ok) {
+      continue;
+    }
+
+    try {
+      const playerResponse = (await response.json()) as WatchPagePlayerResponse;
+      if (hasCaptionTracks(playerResponse)) {
+        return playerResponse;
+      }
+      if (!fallbackResponse) {
+        fallbackResponse = playerResponse;
+      }
+    } catch {
+      continue;
+    }
   }
 
-  try {
-    return (await response.json()) as WatchPagePlayerResponse;
-  } catch {
-    return null;
-  }
+  return fallbackResponse;
 }
 
 async function fetchPlayerResponseFromHtmlSource(input: {
