@@ -375,6 +375,34 @@ async function markJobQueuedForRetry(jobId: string, attempt: number, error: unkn
   });
 }
 
+async function yieldProcessingJobIfOwned(jobId: string, workerId: string): Promise<void> {
+  const db = getAdminDb();
+  const now = nowTs();
+  const jobRef = db.collection("jobs").doc(jobId);
+
+  await db.runTransaction(async (tx) => {
+    const jobSnap = await tx.get(jobRef);
+    if (!jobSnap.exists) {
+      return;
+    }
+
+    const job = jobSnap.data() as JobRecord;
+    if (job.status !== "processing" || job.lockedBy !== workerId) {
+      return;
+    }
+
+    tx.update(jobRef, {
+      status: "queued",
+      nextRunAt: now,
+      lockedBy: "",
+      lockedAt: now,
+      updatedAt: now,
+      errorCode: "",
+      errorMessage: "",
+    });
+  });
+}
+
 async function progressMaterialPipeline(jobId: string, job: JobRecord, workerId?: string): Promise<void> {
   const db = getAdminDb();
   const materialRef = db.collection("materials").doc(job.materialId);
@@ -546,6 +574,7 @@ export async function runJobToCompletion(
       return { result: "done" };
     }
     if (result.result === "processing" && maxIterations <= 1) {
+      await yieldProcessingJobIfOwned(jobId, workerId);
       return { result: "processing" };
     }
     if (result.result === "failed") {
