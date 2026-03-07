@@ -64,8 +64,8 @@
 
 ## 4.1 外部スケジューラ運用
 
-- 基本系は `vercel.json` の cron で `/api/cron/jobs` を 1 分ごとに実行する
-- 追加の冗長化や別環境連携が必要な場合だけ、外部スケジューラから Worker API を叩く
+- Hobby では `vercel.json` の cron は日次のみ
+- 短い間隔での再実行が必要なら、外部スケジューラから Worker API を叩く
 - 推奨は `cron-job.org`
 - 代替は GitHub Actions または Cloudflare Workers Cron
 
