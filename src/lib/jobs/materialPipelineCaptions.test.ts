@@ -359,17 +359,17 @@ describe("caption provider", () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
 
-    fetchMock.mockResolvedValueOnce(
-      textResponse(
-        `<html><script>var ytInitialPlayerResponse = ${JSON.stringify({
-          videoDetails: {
-            title: "No Captions",
-            author: "Silent Channel",
-            lengthSeconds: "60",
-          },
-        })};</script></html>`,
-      ),
-    );
+    const noCaptionBody = `<html><script>var ytInitialPlayerResponse = ${JSON.stringify({
+      videoDetails: {
+        title: "No Captions",
+        author: "Silent Channel",
+        lengthSeconds: "60",
+      },
+    })};</script></html>`;
+    fetchMock
+      .mockResolvedValueOnce(textResponse(noCaptionBody))
+      .mockResolvedValueOnce(textResponse(noCaptionBody))
+      .mockResolvedValueOnce(textResponse(noCaptionBody));
 
     const provider = getMaterialPipelineCaptionProvider();
     await expect(
@@ -384,6 +384,69 @@ describe("caption provider", () => {
       reason: "captions_not_found",
       message: "No YouTube captions were available for this video.",
     });
+  });
+
+  it("falls back to the embed page when watch variants expose no caption tracks", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    fetchMock
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(
+        textResponse(
+          `<html><script>var ytInitialPlayerResponse = ${JSON.stringify({
+            videoDetails: {
+              title: "Embed Captions",
+              author: "Embed Channel",
+              lengthSeconds: "120",
+            },
+            captions: {
+              playerCaptionsTracklistRenderer: {
+                captionTracks: [
+                  {
+                    baseUrl: "https://www.youtube.com/api/timedtext?v=embed123&lang=en",
+                    languageCode: "en",
+                    name: { simpleText: "English" },
+                  },
+                ],
+              },
+            },
+          })};</script></html>`,
+        ),
+      )
+      .mockResolvedValueOnce(
+        textResponse(
+          JSON.stringify({
+            events: [{ tStartMs: 0, dDurationMs: 800, segs: [{ utf8: "embed fallback cue" }] }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    const provider = getMaterialPipelineCaptionProvider();
+    const result = await provider.fetchCaptions({
+      materialId: "mat-5",
+      youtubeId: "embed123",
+      youtubeUrl: "https://www.youtube.com/watch?v=embed123",
+    });
+
+    expect(result).toEqual({
+      status: "fetched",
+      source: "youtube_captions",
+      cues: [{ startMs: 0, endMs: 800, text: "embed fallback cue" }],
+      metadata: {
+        title: "Embed Captions",
+        channel: "Embed Channel",
+        durationSec: 120,
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("youtube.com/watch");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("m.youtube.com/watch");
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/embed/embed123");
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain("fmt=json3");
   });
 });
 

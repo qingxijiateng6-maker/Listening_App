@@ -111,6 +111,8 @@ const DEFAULT_ANDROID_INNERTUBE_USER_AGENT =
   "com.google.android.youtube/21.02.35 (Linux; U; Android 11) gzip";
 const DEFAULT_WEB_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
+const DEFAULT_MOBILE_WEB_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1";
 const DEFAULT_MERGE_MAX_GAP_MS = 900;
 const DEFAULT_MERGE_MAX_DURATION_MS = 7_000;
 const DEFAULT_MERGE_MAX_TEXT_LENGTH = 220;
@@ -514,6 +516,24 @@ function buildWatchPageUrl(youtubeId: string): string {
   return url.toString();
 }
 
+function buildMobileWatchPageUrl(youtubeId: string): string {
+  const url = new URL("https://m.youtube.com/watch");
+  url.searchParams.set("v", youtubeId);
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("gl", "US");
+  url.searchParams.set("persist_hl", "1");
+  url.searchParams.set("persist_gl", "1");
+  return url.toString();
+}
+
+function buildEmbedPageUrl(youtubeId: string): string {
+  const url = new URL(`https://www.youtube.com/embed/${youtubeId}`);
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("cc_lang_pref", "en");
+  url.searchParams.set("cc_load_policy", "1");
+  return url.toString();
+}
+
 function extractBalancedJsonObject(text: string, startIndex: number): string | null {
   let depth = 0;
   let inString = false;
@@ -638,7 +658,7 @@ function buildAndroidPlayerRequestBody(youtubeId: string, visitorData?: string):
 
 async function fetchInnertubePlayerResponse(
   youtubeId: string,
-  watchUrl: string,
+  sourceUrl: string,
   context: InnertubeContext,
 ): Promise<WatchPagePlayerResponse | null> {
   if (!context.apiKey) {
@@ -649,7 +669,7 @@ async function fetchInnertubePlayerResponse(
     method: "POST",
     headers: buildRequestHeaders({
       userAgent: DEFAULT_ANDROID_INNERTUBE_USER_AGENT,
-      referer: watchUrl,
+      referer: sourceUrl,
       extra: {
         "content-type": "application/json",
         origin: "https://www.youtube.com",
@@ -672,28 +692,82 @@ async function fetchInnertubePlayerResponse(
   }
 }
 
-async function fetchWatchPagePlayerResponse(youtubeId: string): Promise<WatchPagePlayerResponse | null> {
-  const watchUrl = buildWatchPageUrl(youtubeId);
-  const watchResponse = await fetchResponseWithRetries(watchUrl, {
-    headers: buildRequestHeaders({ referer: "https://www.youtube.com/" }),
+async function fetchPlayerResponseFromHtmlSource(input: {
+  youtubeId: string;
+  sourceUrl: string;
+  referer: string;
+  userAgent?: string;
+}): Promise<WatchPagePlayerResponse | null> {
+  const response = await fetchResponseWithRetries(input.sourceUrl, {
+    headers: buildRequestHeaders({
+      referer: input.referer,
+      userAgent: input.userAgent,
+    }),
   });
-  if (!watchResponse.ok) {
+  if (!response.ok) {
     return null;
   }
 
-  const rawHtml = await watchResponse.text();
-  const innertubeContext = extractInnertubeContext(rawHtml);
+  const rawHtml = await response.text();
+  const playerResponseFromHtml = extractPlayerResponseFromWatchHtml(rawHtml);
+  if (hasCaptionTracks(playerResponseFromHtml)) {
+    return playerResponseFromHtml;
+  }
 
+  const innertubeContext = extractInnertubeContext(rawHtml);
   try {
-    const innertubePlayerResponse = await fetchInnertubePlayerResponse(youtubeId, watchUrl, innertubeContext);
+    const innertubePlayerResponse = await fetchInnertubePlayerResponse(
+      input.youtubeId,
+      input.sourceUrl,
+      innertubeContext,
+    );
     if (hasCaptionTracks(innertubePlayerResponse)) {
       return innertubePlayerResponse;
     }
   } catch {
-    // Fall back to the embedded player response in the watch HTML.
+    // Fall back to whichever player response was embedded in the HTML.
   }
 
-  return extractPlayerResponseFromWatchHtml(rawHtml);
+  return playerResponseFromHtml;
+}
+
+async function fetchWatchPagePlayerResponse(youtubeId: string): Promise<WatchPagePlayerResponse | null> {
+  const candidates = [
+    {
+      sourceUrl: buildWatchPageUrl(youtubeId),
+      referer: "https://www.youtube.com/",
+      userAgent: getWebUserAgent(),
+    },
+    {
+      sourceUrl: buildMobileWatchPageUrl(youtubeId),
+      referer: "https://m.youtube.com/",
+      userAgent: DEFAULT_MOBILE_WEB_USER_AGENT,
+    },
+    {
+      sourceUrl: buildEmbedPageUrl(youtubeId),
+      referer: "https://www.youtube.com/",
+      userAgent: getWebUserAgent(),
+    },
+  ];
+
+  let fallbackResponse: WatchPagePlayerResponse | null = null;
+  for (const candidate of candidates) {
+    const response = await fetchPlayerResponseFromHtmlSource({
+      youtubeId,
+      sourceUrl: candidate.sourceUrl,
+      referer: candidate.referer,
+      userAgent: candidate.userAgent,
+    });
+
+    if (hasCaptionTracks(response)) {
+      return response;
+    }
+    if (!fallbackResponse && response) {
+      fallbackResponse = response;
+    }
+  }
+
+  return fallbackResponse;
 }
 
 function inferTrackExtensionFromUrl(url: string): string | undefined {
