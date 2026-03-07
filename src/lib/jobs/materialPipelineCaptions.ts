@@ -930,6 +930,26 @@ function inferTrackExtensionFromUrl(url: string): string | undefined {
   }
 }
 
+function buildAlternateTimedTextUrl(baseUrl: string): string | null {
+  try {
+    const parsedUrl = new URL(baseUrl);
+    const host = parsedUrl.hostname.toLowerCase();
+    if (host === "www.youtube.com" || host === "youtube.com") {
+      parsedUrl.hostname = "video.google.com";
+      return parsedUrl.toString();
+    }
+    if (host === "video.google.com") {
+      parsedUrl.hostname = "www.youtube.com";
+      parsedUrl.pathname = "/api/timedtext";
+      return parsedUrl.toString();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function buildCaptionTrackDownloadUrls(baseUrl: string): Array<{ url: string; extensionHint?: string }> {
   const candidates: Array<{ url: string; extensionHint?: string }> = [];
 
@@ -945,7 +965,169 @@ function buildCaptionTrackDownloadUrls(baseUrl: string): Array<{ url: string; ex
     candidates.push({ url: baseUrl, extensionHint: inferTrackExtensionFromUrl(baseUrl) });
   }
 
+  const alternateUrl = buildAlternateTimedTextUrl(baseUrl);
+  if (alternateUrl) {
+    try {
+      const alternateJson3Url = new URL(alternateUrl);
+      alternateJson3Url.searchParams.set("fmt", "json3");
+      const alternateJson3 = alternateJson3Url.toString();
+      if (!candidates.some((candidate) => candidate.url === alternateJson3)) {
+        candidates.push({ url: alternateJson3, extensionHint: "json3" });
+      }
+    } catch {
+      // Ignore invalid alternate mutations and keep the raw alternate URL fallback only.
+    }
+
+    if (!candidates.some((candidate) => candidate.url === alternateUrl)) {
+      candidates.push({ url: alternateUrl, extensionHint: inferTrackExtensionFromUrl(alternateUrl) });
+    }
+  }
+
   return candidates;
+}
+
+function parseXmlAttributes(rawAttributes: string): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  const attributePattern = /([a-zA-Z0-9_:-]+)="([^"]*)"/g;
+  let match = attributePattern.exec(rawAttributes);
+  while (match) {
+    const key = match[1]?.trim();
+    if (key) {
+      attributes[key] = decodeHtmlEntities(match[2] ?? "");
+    }
+    match = attributePattern.exec(rawAttributes);
+  }
+  return attributes;
+}
+
+function buildTimedTextTrackBaseUrl(
+  host: "www.youtube.com" | "video.google.com",
+  youtubeId: string,
+  track: Pick<WatchPageCaptionTrack, "languageCode" | "kind" | "name" | "vssId">,
+): string {
+  const url = new URL(host === "video.google.com" ? "https://video.google.com/timedtext" : "https://www.youtube.com/api/timedtext");
+  url.searchParams.set("v", youtubeId);
+  url.searchParams.set("lang", track.languageCode);
+
+  if (track.kind) {
+    url.searchParams.set("kind", track.kind);
+  }
+  if (track.name) {
+    url.searchParams.set("name", track.name);
+  }
+  if (track.vssId) {
+    url.searchParams.set("vss_id", track.vssId);
+  }
+
+  return url.toString();
+}
+
+function parseTimedTextTrackList(
+  rawXml: string,
+  youtubeId: string,
+  host: "www.youtube.com" | "video.google.com",
+): WatchPageCaptionTrack[] {
+  const content = stripBom(rawXml);
+  const trackPattern = /<track\b([^>]*)\/?>/gi;
+  const tracks: WatchPageCaptionTrack[] = [];
+  let match = trackPattern.exec(content);
+
+  while (match) {
+    const attributes = parseXmlAttributes(match[1] ?? "");
+    const languageCode = attributes.lang_code?.trim() ?? "";
+    if (!languageCode) {
+      match = trackPattern.exec(content);
+      continue;
+    }
+
+    const languageName =
+      attributes.lang_translated?.trim() ||
+      attributes.lang_original?.trim() ||
+      languageCode;
+    const name = attributes.name?.trim() || undefined;
+    const kind = attributes.kind?.trim() || undefined;
+    const vssId = attributes.vss_id?.trim() || undefined;
+
+    tracks.push({
+      baseUrl: buildTimedTextTrackBaseUrl(host, youtubeId, {
+        languageCode,
+        kind,
+        name,
+        vssId,
+      }),
+      languageCode,
+      languageName,
+      kind,
+      name,
+      vssId,
+    });
+
+    match = trackPattern.exec(content);
+  }
+
+  return tracks;
+}
+
+async function fetchTimedTextTrackList(input: {
+  materialId: string;
+  youtubeId: string;
+}): Promise<WatchPageCaptionTrack[]> {
+  const candidates = [
+    {
+      label: "youtube_timedtext_list",
+      host: "www.youtube.com" as const,
+      url: `https://www.youtube.com/api/timedtext?type=list&v=${encodeURIComponent(input.youtubeId)}&hl=en&gl=US`,
+      referer: buildWatchPageUrl(input.youtubeId),
+    },
+    {
+      label: "video_google_timedtext_list",
+      host: "video.google.com" as const,
+      url: `https://video.google.com/timedtext?type=list&v=${encodeURIComponent(input.youtubeId)}&hl=en&gl=US`,
+      referer: buildWatchPageUrl(input.youtubeId),
+    },
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetchResponseWithRetries(candidate.url, {
+        headers: buildRequestHeaders({
+          accept: "application/xml,text/xml;q=0.9,*/*;q=0.8",
+          referer: candidate.referer,
+        }),
+      });
+
+      if (!response.ok) {
+        logCaptionFetch("track_list_http_error", {
+          materialId: input.materialId,
+          youtubeId: input.youtubeId,
+          source: candidate.label,
+          status: response.status,
+        });
+        continue;
+      }
+
+      const rawXml = await response.text();
+      const tracks = parseTimedTextTrackList(rawXml, input.youtubeId, candidate.host);
+      logCaptionFetch("track_list_response", {
+        materialId: input.materialId,
+        youtubeId: input.youtubeId,
+        source: candidate.label,
+        trackCount: tracks.length,
+      });
+      if (tracks.length > 0) {
+        return rankWatchPageCaptionTracks(tracks);
+      }
+    } catch (error) {
+      logCaptionFetch("track_list_error", {
+        materialId: input.materialId,
+        youtubeId: input.youtubeId,
+        source: candidate.label,
+        message: error instanceof Error ? error.message : "Unknown track list error",
+      });
+    }
+  }
+
+  return [];
 }
 
 export function parseJson3Captions(rawJson: string): CaptionCue[] {
@@ -1243,9 +1425,15 @@ function createFetchCaptionProvider(): CaptionProvider {
         });
         const watchUrl = buildWatchPageUrl(input.youtubeId);
         const playerResponse = await fetchWatchPagePlayerResponse(input.materialId, input.youtubeId);
-        const rankedTracks = playerResponse
+        let rankedTracks = playerResponse
           ? rankWatchPageCaptionTracks(extractCaptionTracksFromPlayerResponse(playerResponse))
           : [];
+        if (rankedTracks.length === 0) {
+          rankedTracks = await fetchTimedTextTrackList({
+            materialId: input.materialId,
+            youtubeId: input.youtubeId,
+          });
+        }
         logCaptionFetch("tracks_ranked", {
           materialId: input.materialId,
           youtubeId: input.youtubeId,

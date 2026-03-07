@@ -395,6 +395,8 @@ describe("caption provider", () => {
       )
       .mockResolvedValueOnce(textResponse('{"events":[]}', { headers: { "content-type": "application/json" } }))
       .mockResolvedValueOnce(textResponse("WEBVTT\n\n", { headers: { "content-type": "text/vtt" } }))
+      .mockResolvedValueOnce(textResponse('{"events":[]}', { headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(textResponse("WEBVTT\n\n", { headers: { "content-type": "text/vtt" } }))
       .mockResolvedValueOnce(
         textResponse(
           JSON.stringify({
@@ -422,10 +424,12 @@ describe("caption provider", () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("lang=en");
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("lang=en");
-    expect(String(fetchMock.mock.calls[3]?.[0])).toContain("lang=en&kind=asr");
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain("video.google.com");
+    expect(String(fetchMock.mock.calls[4]?.[0])).toContain("video.google.com");
+    expect(String(fetchMock.mock.calls[5]?.[0])).toContain("lang=en&kind=asr");
   });
 
   it("returns captions_not_found when the video exposes no caption tracks", async () => {
@@ -443,7 +447,9 @@ describe("caption provider", () => {
       .mockResolvedValueOnce(textResponse(noCaptionBody))
       .mockResolvedValueOnce(textResponse(noCaptionBody))
       .mockResolvedValueOnce(textResponse(noCaptionBody))
-      .mockResolvedValueOnce(textResponse(noCaptionBody));
+      .mockResolvedValueOnce(textResponse(noCaptionBody))
+      .mockResolvedValueOnce(textResponse("<transcript_list></transcript_list>", { headers: { "content-type": "application/xml" } }))
+      .mockResolvedValueOnce(textResponse("<transcript_list></transcript_list>", { headers: { "content-type": "application/xml" } }));
 
     const provider = getMaterialPipelineCaptionProvider();
     await expect(
@@ -458,6 +464,49 @@ describe("caption provider", () => {
       reason: "captions_not_found",
       message: "No YouTube captions were available for this video.",
     });
+  });
+
+  it("falls back to the timedtext track list when player responses expose no caption tracks", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    fetchMock
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(
+        textResponse(
+          '<transcript_list><track lang_code="en" lang_original="English" lang_translated="English" kind="asr" /></transcript_list>',
+          { headers: { "content-type": "application/xml" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        textResponse(
+          JSON.stringify({
+            events: [{ tStartMs: 0, dDurationMs: 700, segs: [{ utf8: "track list cue" }] }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    const provider = getMaterialPipelineCaptionProvider();
+    const result = await provider.fetchCaptions({
+      materialId: "mat-6",
+      youtubeId: "tracklist123",
+      youtubeUrl: "https://www.youtube.com/watch?v=tracklist123",
+    });
+
+    expect(result).toEqual({
+      status: "fetched",
+      source: "youtube_captions",
+      cues: [{ startMs: 0, endMs: 700, text: "track list cue" }],
+      metadata: undefined,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(String(fetchMock.mock.calls[4]?.[0])).toContain("type=list");
+    expect(String(fetchMock.mock.calls[5]?.[0])).toContain("kind=asr");
   });
 
   it("falls back to the embed page when watch variants expose no caption tracks", async () => {
