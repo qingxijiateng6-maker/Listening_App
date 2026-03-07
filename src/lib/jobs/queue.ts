@@ -1,5 +1,13 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
+import type {
+  DispatchResult,
+  JobStep,
+  QueueJobRecord,
+  QueueJobStatus,
+  QueueMaterialRecord,
+  RunJobToCompletion,
+} from "@listening-app/material-pipeline-core";
 import {
   JOB_BACKOFF_BASE_SECONDS,
   JOB_LOCK_TIMEOUT_MS,
@@ -9,42 +17,12 @@ import {
 import { getAdminDb } from "@/lib/firebase/admin";
 import { buildMaterialPipelineJobId } from "@/lib/jobs/idempotency";
 import { runMaterialPipelineStep } from "@/lib/jobs/materialPipeline";
-import type { JobStep } from "@/types/domain";
 
 const MATERIAL_PIPELINE_STEPS: JobStep[] = ["meta", "captions", "format"];
 
-type JobStatus = "queued" | "processing" | "done" | "failed";
-type JobType = "material_pipeline";
-
-type JobRecord = {
-  type: JobType;
-  materialId: string;
-  pipelineVersion: string;
-  status: JobStatus;
-  step: JobStep;
-  attempt: number;
-  nextRunAt: Timestamp;
-  lockedBy?: string;
-  lockedAt?: Timestamp;
-  errorCode?: string;
-  errorMessage?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-};
-
-type MaterialRecord = {
-  pipelineVersion: string;
-  status: "queued" | "processing" | "ready" | "failed";
-  pipelineState?: {
-    currentStep: JobStep;
-    lastCompletedStep: JobStep | null;
-    status: "queued" | "processing" | "ready" | "failed";
-    updatedAt: Timestamp;
-    errorCode?: string;
-    errorMessage?: string;
-  };
-  updatedAt: Timestamp;
-};
+type JobStatus = QueueJobStatus;
+type JobRecord = QueueJobRecord<Timestamp>;
+type MaterialRecord = QueueMaterialRecord<Timestamp>;
 
 type PipelineProgressState = {
   materialStatus: MaterialRecord["status"];
@@ -59,11 +37,6 @@ type JobFailureDetails = {
   isPermanentFailure: boolean;
   errorCode: string;
   errorMessage: string;
-};
-
-export type DispatchResult = {
-  reclaimedStaleLocks: number;
-  lockedJobIds: string[];
 };
 
 function nowTs(): Timestamp {
@@ -518,11 +491,11 @@ export async function runSingleJob(jobId: string, workerId?: string): Promise<{
   }
 }
 
-export async function runJobToCompletion(
+export const runJobToCompletion: RunJobToCompletion = async (
   jobId: string,
   workerId: string,
   maxIterations = MATERIAL_PIPELINE_STEPS.length + 2,
-): Promise<{ result: "done" | "processing" | "failed" }> {
+): Promise<{ result: "done" | "processing" | "failed" }> => {
   const db = getAdminDb();
   const jobRef = db.collection("jobs").doc(jobId);
 
@@ -590,7 +563,7 @@ export async function runJobToCompletion(
   }
 
   return { result: "processing" };
-}
+};
 
 export async function enqueueMaterialPipelineJob(materialId: string): Promise<string> {
   const db = getAdminDb();
