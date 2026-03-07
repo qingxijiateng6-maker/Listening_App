@@ -16,6 +16,11 @@ type CaptionMetadata = {
   durationSec?: number;
 };
 
+type CaptionTrackLookupResult = {
+  tracks: WatchPageCaptionTrack[];
+  metadata?: CaptionMetadata;
+};
+
 export type CaptionFetchResult =
   | {
       status: "fetched";
@@ -388,6 +393,10 @@ function toWatchPageMetadata(playerResponse: WatchPagePlayerResponse): CaptionMe
     channel: playerResponse.videoDetails?.author?.trim() || undefined,
     durationSec: parseLengthSeconds(playerResponse.videoDetails?.lengthSeconds),
   };
+}
+
+function hasMetadata(metadata: CaptionMetadata | undefined): metadata is CaptionMetadata {
+  return Boolean(metadata?.title || metadata?.channel || metadata?.durationSec);
 }
 
 function extractCaptionTracksFromPlayerResponse(playerResponse: WatchPagePlayerResponse): WatchPageCaptionTrack[] {
@@ -1130,6 +1139,132 @@ async function fetchTimedTextTrackList(input: {
   return [];
 }
 
+let youtubeJsInstancePromise: Promise<{
+  getInfo: (videoId: string) => Promise<{
+    basic_info?: {
+      title?: string;
+      author?: string;
+      duration?: number;
+    };
+    captions?: {
+      caption_tracks?: Array<{
+        base_url?: string;
+        name?: { text?: string } | string;
+        vss_id?: string;
+        language_code?: string;
+        kind?: string;
+      }>;
+    };
+  }>;
+}> | null = null;
+
+async function getYoutubeJsInstance() {
+  if (!youtubeJsInstancePromise) {
+    youtubeJsInstancePromise = import("youtubei.js")
+      .then(async (module) => {
+        const factory =
+          "Innertube" in module && typeof module.Innertube?.create === "function"
+            ? module.Innertube
+            : "default" in module && typeof module.default?.create === "function"
+              ? module.default
+              : null;
+        if (!factory) {
+          throw new Error("youtubei.js Innertube factory is unavailable.");
+        }
+        return factory.create();
+      })
+      .catch((error) => {
+        youtubeJsInstancePromise = null;
+        throw error;
+      });
+  }
+
+  return youtubeJsInstancePromise;
+}
+
+function normalizeYoutubeJsTrackName(name: { text?: string } | string | undefined): string | undefined {
+  if (typeof name === "string") {
+    const trimmed = name.trim();
+    return trimmed || undefined;
+  }
+
+  const trimmed = name?.text?.trim();
+  return trimmed || undefined;
+}
+
+function normalizeYoutubeJsCaptionTracks(
+  tracks:
+    | Array<{
+        base_url?: string;
+        name?: { text?: string } | string;
+        vss_id?: string;
+        language_code?: string;
+        kind?: string;
+      }>
+    | undefined,
+): WatchPageCaptionTrack[] {
+  const normalized: WatchPageCaptionTrack[] = [];
+
+  for (const track of tracks ?? []) {
+    const baseUrl = track.base_url?.trim() ?? "";
+    const languageCode = track.language_code?.trim() ?? "";
+    if (!baseUrl || !languageCode) {
+      continue;
+    }
+
+    const languageName = normalizeYoutubeJsTrackName(track.name) ?? languageCode;
+    normalized.push({
+      baseUrl,
+      languageCode,
+      languageName,
+      kind: track.kind?.trim() || undefined,
+      name: normalizeYoutubeJsTrackName(track.name),
+      vssId: track.vss_id?.trim() || undefined,
+    });
+  }
+
+  return normalized;
+}
+
+async function fetchYoutubeJsCaptionTracks(input: {
+  materialId: string;
+  youtubeId: string;
+}): Promise<CaptionTrackLookupResult> {
+  try {
+    const yt = await getYoutubeJsInstance();
+    const info = await yt.getInfo(input.youtubeId);
+    const tracks = rankWatchPageCaptionTracks(
+      normalizeYoutubeJsCaptionTracks(info.captions?.caption_tracks),
+    );
+    const metadata: CaptionMetadata = {
+      title: info.basic_info?.title?.trim() || undefined,
+      channel: info.basic_info?.author?.trim() || undefined,
+      durationSec:
+        typeof info.basic_info?.duration === "number" && Number.isFinite(info.basic_info.duration)
+          ? Math.max(0, Math.round(info.basic_info.duration))
+          : undefined,
+    };
+
+    logCaptionFetch("youtubejs_info_response", {
+      materialId: input.materialId,
+      youtubeId: input.youtubeId,
+      trackCount: tracks.length,
+    });
+
+    return {
+      tracks,
+      metadata: hasMetadata(metadata) ? metadata : undefined,
+    };
+  } catch (error) {
+    logCaptionFetch("youtubejs_info_error", {
+      materialId: input.materialId,
+      youtubeId: input.youtubeId,
+      message: error instanceof Error ? error.message : "Unknown youtubei.js error",
+    });
+    return { tracks: [] };
+  }
+}
+
 export function parseJson3Captions(rawJson: string): CaptionCue[] {
   const parsed = JSON.parse(stripBom(rawJson)) as Json3Captions;
   const events = parsed.events ?? [];
@@ -1425,6 +1560,7 @@ function createFetchCaptionProvider(): CaptionProvider {
         });
         const watchUrl = buildWatchPageUrl(input.youtubeId);
         const playerResponse = await fetchWatchPagePlayerResponse(input.materialId, input.youtubeId);
+        let metadata = playerResponse ? toWatchPageMetadata(playerResponse) : undefined;
         let rankedTracks = playerResponse
           ? rankWatchPageCaptionTracks(extractCaptionTracksFromPlayerResponse(playerResponse))
           : [];
@@ -1433,6 +1569,16 @@ function createFetchCaptionProvider(): CaptionProvider {
             materialId: input.materialId,
             youtubeId: input.youtubeId,
           });
+        }
+        if (rankedTracks.length === 0) {
+          const youtubeJsResult = await fetchYoutubeJsCaptionTracks({
+            materialId: input.materialId,
+            youtubeId: input.youtubeId,
+          });
+          rankedTracks = youtubeJsResult.tracks;
+          if (!hasMetadata(metadata) && youtubeJsResult.metadata) {
+            metadata = youtubeJsResult.metadata;
+          }
         }
         logCaptionFetch("tracks_ranked", {
           materialId: input.materialId,
@@ -1482,7 +1628,7 @@ function createFetchCaptionProvider(): CaptionProvider {
                   status: "fetched",
                   source: "youtube_captions",
                   cues,
-                  metadata: playerResponse ? toWatchPageMetadata(playerResponse) : undefined,
+                  metadata,
                 };
               }
             } catch (error) {

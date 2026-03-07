@@ -11,6 +11,17 @@ import {
   parseWebVttCaptions,
 } from "@/lib/jobs/materialPipelineCaptions";
 
+const youtubeJsMocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  getInfo: vi.fn(),
+}));
+
+vi.mock("youtubei.js", () => ({
+  Innertube: {
+    create: youtubeJsMocks.create,
+  },
+}));
+
 function textResponse(body: string, init?: ResponseInit): Response {
   return new Response(body, init);
 }
@@ -161,6 +172,10 @@ describe("caption provider", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    youtubeJsMocks.create.mockReset();
+    youtubeJsMocks.getInfo.mockReset();
+    youtubeJsMocks.create.mockResolvedValue({ getInfo: youtubeJsMocks.getInfo });
+    youtubeJsMocks.getInfo.mockResolvedValue({});
   });
 
   it("fetches captions via watch html, innertube player, and fmt=json3", async () => {
@@ -507,6 +522,69 @@ describe("caption provider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(String(fetchMock.mock.calls[4]?.[0])).toContain("type=list");
     expect(String(fetchMock.mock.calls[5]?.[0])).toContain("kind=asr");
+  });
+
+  it("falls back to youtubei.js track discovery when html and timedtext list expose nothing", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    youtubeJsMocks.getInfo.mockResolvedValue({
+      basic_info: {
+        title: "youtubei fallback",
+        author: "Open Channel",
+        duration: 91,
+      },
+      captions: {
+        caption_tracks: [
+          {
+            base_url: "https://www.youtube.com/api/timedtext?v=youtubejs123&lang=en&kind=asr",
+            language_code: "en",
+            name: { text: "English (auto-generated)" },
+            kind: "asr",
+            vss_id: ".en",
+          },
+        ],
+      },
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(textResponse("<html><body>No caption tracks here.</body></html>"))
+      .mockResolvedValueOnce(
+        textResponse("<transcript_list></transcript_list>", { headers: { "content-type": "application/xml" } }),
+      )
+      .mockResolvedValueOnce(
+        textResponse("<transcript_list></transcript_list>", { headers: { "content-type": "application/xml" } }),
+      )
+      .mockResolvedValueOnce(
+        textResponse(
+          JSON.stringify({
+            events: [{ tStartMs: 0, dDurationMs: 700, segs: [{ utf8: "youtubejs fallback cue" }] }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    const provider = getMaterialPipelineCaptionProvider();
+    const result = await provider.fetchCaptions({
+      materialId: "mat-youtubejs",
+      youtubeId: "youtubejs123",
+      youtubeUrl: "https://www.youtube.com/watch?v=youtubejs123",
+    });
+
+    expect(youtubeJsMocks.getInfo).toHaveBeenCalledWith("youtubejs123");
+    expect(result).toEqual({
+      status: "fetched",
+      source: "youtube_captions",
+      cues: [{ startMs: 0, endMs: 700, text: "youtubejs fallback cue" }],
+      metadata: {
+        title: "youtubei fallback",
+        channel: "Open Channel",
+        durationSec: 91,
+      },
+    });
   });
 
   it("falls back to the embed page when watch variants expose no caption tracks", async () => {
