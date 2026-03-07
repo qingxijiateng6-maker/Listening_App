@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   let failed = 0;
   const results = await Promise.all(
     dispatchResult.lockedJobIds.map(async (jobId) => {
-      const result = await runJobToCompletion(jobId, workerId);
+      const result = await runJobToCompletion(jobId, workerId, 1);
       if (result.result === "failed") {
         failed += 1;
       } else {

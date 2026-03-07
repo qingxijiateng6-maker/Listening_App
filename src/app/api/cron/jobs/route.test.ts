@@ -67,8 +67,8 @@ describe("GET /api/cron/jobs", () => {
 
     const response = await GET(new NextRequest("http://localhost/api/cron/jobs"));
 
-    expect(runJobToCompletionMock).toHaveBeenNthCalledWith(1, "job-1", "cron-worker");
-    expect(runJobToCompletionMock).toHaveBeenNthCalledWith(2, "job-2", "cron-worker");
+    expect(runJobToCompletionMock).toHaveBeenNthCalledWith(1, "job-1", "cron-worker", 1);
+    expect(runJobToCompletionMock).toHaveBeenNthCalledWith(2, "job-2", "cron-worker", 1);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       reclaimedStaleLocks: 0,

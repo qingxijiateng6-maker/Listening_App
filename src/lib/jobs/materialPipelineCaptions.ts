@@ -101,8 +101,8 @@ type InnertubeContext = {
   visitorData?: string;
 };
 
-const DEFAULT_CAPTION_FETCH_TIMEOUT_MS = 15_000;
-const DEFAULT_CAPTION_FETCH_RETRIES = 2;
+const DEFAULT_CAPTION_FETCH_TIMEOUT_MS = 8_000;
+const DEFAULT_CAPTION_FETCH_RETRIES = 1;
 const MAX_CAPTION_PAYLOAD_BYTES = 16 * 1024 * 1024;
 const DEFAULT_SUBTITLE_LANGS = "en.*,en";
 const DEFAULT_ANDROID_INNERTUBE_CLIENT_NAME = "3";
@@ -137,14 +137,16 @@ function readEnvInt(name: string, fallback: number): number {
 function getCaptionFetchTimeoutMs(): number {
   return (
     readEnvInt("YT_CAPTION_FETCH_TIMEOUT_MS", 0) ||
-    readEnvInt("YT_DLP_CAPTION_FETCH_TIMEOUT_MS", DEFAULT_CAPTION_FETCH_TIMEOUT_MS)
+    readEnvInt("YT_DLP_CAPTION_FETCH_TIMEOUT_MS", 0) ||
+    readEnvInt("YT_DLP_TIMEOUT_MS", DEFAULT_CAPTION_FETCH_TIMEOUT_MS)
   );
 }
 
 function getCaptionFetchRetries(): number {
   return (
     readEnvInt("YT_CAPTION_FETCH_RETRIES", 0) ||
-    readEnvInt("YT_DLP_CAPTION_FETCH_RETRIES", DEFAULT_CAPTION_FETCH_RETRIES)
+    readEnvInt("YT_DLP_CAPTION_FETCH_RETRIES", 0) ||
+    readEnvInt("YT_DLP_RETRIES", DEFAULT_CAPTION_FETCH_RETRIES)
   );
 }
 

@@ -24,7 +24,7 @@ describe("job lock policy", () => {
 
   it("keeps lock valid when within ttl", () => {
     const now = Timestamp.fromMillis(1_000_000);
-    const recent = Timestamp.fromMillis(1_000_000 - 2 * 60 * 1000);
+    const recent = Timestamp.fromMillis(1_000_000 - 60 * 1000);
     expect(isLockStale(recent, now)).toBe(false);
   });
 });

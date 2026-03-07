@@ -76,7 +76,7 @@ export async function POST(
   }
 
   if (shouldRun) {
-    await runJobToCompletion(jobId, createWorkerId("material-prepare"));
+    await runJobToCompletion(jobId, createWorkerId("material-prepare"), 1);
   }
 
   const latestMaterial = (await getMaterial(user.uid, materialId)) ?? material;

@@ -542,6 +542,12 @@ export async function runJobToCompletion(
     }
 
     const result = await runSingleJob(jobId, workerId);
+    if (result.result === "done") {
+      return { result: "done" };
+    }
+    if (result.result === "processing" && maxIterations <= 1) {
+      return { result: "processing" };
+    }
     if (result.result === "failed") {
       const latest = await jobRef.get();
       const latestJob = latest.data() as JobRecord | undefined;

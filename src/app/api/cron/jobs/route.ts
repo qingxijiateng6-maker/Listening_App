@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     dispatchResult.lockedJobIds.map(async (jobId) => {
       return {
         jobId,
-        result: (await runJobToCompletion(jobId, workerId)).result,
+        result: (await runJobToCompletion(jobId, workerId, 1)).result,
       };
     }),
   );

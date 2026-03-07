@@ -166,7 +166,7 @@ describe("POST /api/materials/[materialId]/prepare", () => {
     });
 
     expect(enqueueMaterialPipelineJobMock).toHaveBeenCalledWith("mat-1");
-    expect(runJobToCompletionMock).toHaveBeenCalledWith("material_pipeline:mat-1:v2", "worker-1");
+    expect(runJobToCompletionMock).toHaveBeenCalledWith("material_pipeline:mat-1:v2", "worker-1", 1);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       status: "ready",
@@ -250,7 +250,7 @@ describe("POST /api/materials/[materialId]/prepare", () => {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
-    expect(runJobToCompletionMock).toHaveBeenCalledWith("material_pipeline:mat-1:v2", "worker-2");
+    expect(runJobToCompletionMock).toHaveBeenCalledWith("material_pipeline:mat-1:v2", "worker-2", 1);
     expect(response.status).toBe(200);
   });
 });
