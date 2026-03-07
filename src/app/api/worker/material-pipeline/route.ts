@@ -3,6 +3,7 @@ import { runSingleJob } from "@/lib/jobs/queue";
 import { isAuthorizedWorkerRequest } from "@/lib/server/internalAuth";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   if (!isAuthorizedWorkerRequest(request)) {

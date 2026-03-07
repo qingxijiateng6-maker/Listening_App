@@ -14,6 +14,7 @@ import { resolveRequestUser } from "@/lib/server/requestUser";
 import type { Material, MaterialStatus } from "@/types/domain";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type JobRecord = {
   status: "queued" | "processing" | "done" | "failed";

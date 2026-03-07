@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { buildAuthenticatedRequestHeaders } from "@/lib/firebase/auth";
+import { MATERIAL_PREPARE_CONTINUATION_CONFIRMATION_AFTER_MS } from "@/lib/constants";
 import type { MaterialStatus } from "@/types/domain";
 
 type CreateMaterialResponse = {
@@ -39,7 +40,6 @@ type MaterialSegmentsResponse = {
 };
 
 const PREPARE_POLL_INTERVAL_MS = 1500;
-const CONTINUE_CONFIRM_DELAY_MS = 120_000;
 
 function buildLoadingMessage(status: MaterialStatus | undefined, pipelineState: PipelineState | undefined): string {
   if (status === "failed") {
@@ -187,7 +187,7 @@ export function MaterialRegistrationLoadingScreen() {
   }, [materialId, router, youtubeUrl]);
 
   useEffect(() => {
-    if (!materialId || error || showContinuePrompt) {
+    if (!materialId || error) {
       return;
     }
 
@@ -255,7 +255,7 @@ export function MaterialRegistrationLoadingScreen() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [error, materialId, router, showContinuePrompt]);
+  }, [error, materialId, router]);
 
   useEffect(() => {
     if (!materialId || error || showContinuePrompt || hasShownContinuePrompt) {
@@ -265,7 +265,7 @@ export function MaterialRegistrationLoadingScreen() {
     const timeoutId = window.setTimeout(() => {
       setHasShownContinuePrompt(true);
       setShowContinuePrompt(true);
-    }, CONTINUE_CONFIRM_DELAY_MS);
+    }, MATERIAL_PREPARE_CONTINUATION_CONFIRMATION_AFTER_MS);
 
     return () => {
       window.clearTimeout(timeoutId);
@@ -297,8 +297,8 @@ export function MaterialRegistrationLoadingScreen() {
         <p>{loadingMessage}</p>
         {showContinuePrompt ? (
           <div role="alertdialog" aria-labelledby="continue-caption-title" aria-describedby="continue-caption-body">
-            <p id="continue-caption-title">字幕取得に時間がかかってしまいます。字幕生成を継続しますか？</p>
-            <p id="continue-caption-body">「はい」で待機を継続し、「トップへ戻る」で待機画面を閉じます。字幕生成はバックグラウンドで継続します。</p>
+            <p id="continue-caption-title">字幕取得に時間がかかっています。待機画面をこのまま開きますか？</p>
+            <p id="continue-caption-body">「はい」でこの画面の表示を続け、「トップへ戻る」で待機画面を閉じます。字幕生成はバックグラウンドでも継続します。</p>
             <div>
               <button type="button" className="primaryCtaButton" onClick={() => setShowContinuePrompt(false)}>
                 はい
