@@ -5,6 +5,7 @@ const resolveRequestUserMock = vi.fn();
 const getAdminDbMock = vi.fn();
 const buildMaterialPipelineJobIdMock = vi.fn();
 const enqueueMaterialPipelineJobMock = vi.fn();
+const wakeCaptionWorkerMock = vi.fn();
 const parseYouTubeUrlMock = vi.fn();
 const isPubliclyAccessibleYouTubeVideoMock = vi.fn();
 
@@ -22,6 +23,10 @@ vi.mock("@/lib/jobs/idempotency", () => ({
 
 vi.mock("@/lib/jobs/queue", () => ({
   enqueueMaterialPipelineJob: (...args: unknown[]) => enqueueMaterialPipelineJobMock(...args),
+}));
+
+vi.mock("@/lib/server/captionWorkerClient", () => ({
+  wakeCaptionWorker: (...args: unknown[]) => wakeCaptionWorkerMock(...args),
 }));
 
 vi.mock("@/lib/youtube", () => ({
@@ -160,6 +165,7 @@ describe("POST /api/materials", () => {
     getAdminDbMock.mockReset();
     buildMaterialPipelineJobIdMock.mockReset();
     enqueueMaterialPipelineJobMock.mockReset();
+    wakeCaptionWorkerMock.mockReset();
     parseYouTubeUrlMock.mockReset();
     isPubliclyAccessibleYouTubeVideoMock.mockReset();
   });
@@ -206,6 +212,7 @@ describe("POST /api/materials", () => {
     isPubliclyAccessibleYouTubeVideoMock.mockResolvedValueOnce(true);
     buildMaterialPipelineJobIdMock.mockReturnValueOnce("job-1");
     enqueueMaterialPipelineJobMock.mockResolvedValueOnce("job-1");
+    wakeCaptionWorkerMock.mockResolvedValueOnce({ ok: true, status: 200 });
 
     const materialRef = {
       id: "mat-1",
@@ -230,6 +237,7 @@ describe("POST /api/materials", () => {
     );
 
     expect(enqueueMaterialPipelineJobMock).toHaveBeenCalledWith("mat-1");
+    expect(wakeCaptionWorkerMock).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       materialId: "mat-1",
@@ -248,6 +256,7 @@ describe("POST /api/materials", () => {
     isPubliclyAccessibleYouTubeVideoMock.mockResolvedValueOnce(true);
     buildMaterialPipelineJobIdMock.mockReturnValueOnce("job-1");
     enqueueMaterialPipelineJobMock.mockResolvedValueOnce("job-1");
+    wakeCaptionWorkerMock.mockResolvedValueOnce({ ok: true, status: 200 });
 
     const setMock = vi.fn().mockResolvedValue(undefined);
     const materialRef = {
@@ -277,6 +286,7 @@ describe("POST /api/materials", () => {
         ownerUid: "fallback-user",
       }),
     );
+    expect(wakeCaptionWorkerMock).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(200);
   });
 
@@ -314,12 +324,59 @@ describe("POST /api/materials", () => {
     );
 
     expect(enqueueMaterialPipelineJobMock).not.toHaveBeenCalled();
+    expect(wakeCaptionWorkerMock).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       materialId: "mat-existing",
       status: "ready",
       jobId: "job-1",
       reused: true,
+    });
+  });
+
+  it("returns success even when the worker wake ping reports a failure", async () => {
+    resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
+    parseYouTubeUrlMock.mockReturnValueOnce({
+      youtubeId: "dQw4w9WgXcQ",
+      normalizedUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    });
+    isPubliclyAccessibleYouTubeVideoMock.mockResolvedValueOnce(true);
+    buildMaterialPipelineJobIdMock.mockReturnValueOnce("job-1");
+    enqueueMaterialPipelineJobMock.mockResolvedValueOnce("job-1");
+    wakeCaptionWorkerMock.mockResolvedValueOnce({
+      ok: false,
+      reason: "timeout",
+      message: "Worker wake ping timed out.",
+    });
+
+    const materialRef = {
+      id: "mat-1",
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const docMock = vi.fn().mockReturnValueOnce(materialRef);
+    const getMock = vi.fn().mockResolvedValue({ docs: [] });
+    const whereMock = vi.fn().mockReturnValue({ get: getMock });
+    getAdminDbMock.mockReturnValue({
+      collection: vi.fn().mockReturnValue({
+        where: whereMock,
+        doc: docMock,
+      }),
+    });
+
+    const response = await POST(
+      toNextRequest(new Request("http://localhost/api/materials", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }),
+      })),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      materialId: "mat-1",
+      status: "queued",
+      jobId: "job-1",
+      reused: false,
     });
   });
 

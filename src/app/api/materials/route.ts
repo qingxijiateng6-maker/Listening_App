@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { MATERIAL_PIPELINE_VERSION } from "@/lib/constants";
+import { wakeCaptionWorker } from "@/lib/server/captionWorkerClient";
 import { resolveRequestUser } from "@/lib/server/requestUser";
 
 export const runtime = "nodejs";
@@ -139,6 +140,7 @@ export async function POST(request: NextRequest) {
     const jobId = buildMaterialPipelineJobId(materialId, MATERIAL_PIPELINE_VERSION);
     if (materialStatus !== "ready") {
       await queueModule.enqueueMaterialPipelineJob(materialId);
+      await wakeCaptionWorker();
     }
 
     return NextResponse.json({
