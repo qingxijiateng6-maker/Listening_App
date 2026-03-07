@@ -1,15 +1,10 @@
-import { Timestamp } from "firebase-admin/firestore";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/materials/[materialId]/prepare/route";
 
 const resolveRequestUserMock = vi.fn();
 const getMaterialMock = vi.fn();
-const getAdminDbMock = vi.fn();
-const createWorkerIdMock = vi.fn();
-const enqueueMaterialPipelineJobMock = vi.fn();
-const isLockStaleMock = vi.fn();
-const runJobToCompletionMock = vi.fn();
+const wakeCaptionWorkerMock = vi.fn();
 
 vi.mock("@/lib/server/requestUser", () => ({
   resolveRequestUser: (...args: unknown[]) => resolveRequestUserMock(...args),
@@ -19,15 +14,8 @@ vi.mock("@/lib/server/materials", () => ({
   getMaterial: (...args: unknown[]) => getMaterialMock(...args),
 }));
 
-vi.mock("@/lib/firebase/admin", () => ({
-  getAdminDb: () => getAdminDbMock(),
-}));
-
-vi.mock("@/lib/jobs/queue", () => ({
-  createWorkerId: (...args: unknown[]) => createWorkerIdMock(...args),
-  enqueueMaterialPipelineJob: (...args: unknown[]) => enqueueMaterialPipelineJobMock(...args),
-  isLockStale: (...args: unknown[]) => isLockStaleMock(...args),
-  runJobToCompletion: (...args: unknown[]) => runJobToCompletionMock(...args),
+vi.mock("@/lib/server/captionWorkerClient", () => ({
+  wakeCaptionWorker: (...args: unknown[]) => wakeCaptionWorkerMock(...args),
 }));
 
 function buildMaterial(overrides?: Record<string, unknown>) {
@@ -54,22 +42,11 @@ function buildMaterial(overrides?: Record<string, unknown>) {
   };
 }
 
-function mockJobSnapshot(data: Record<string, unknown> | null) {
-  return {
-    exists: data !== null,
-    data: () => data,
-  };
-}
-
 describe("POST /api/materials/[materialId]/prepare", () => {
   beforeEach(() => {
     resolveRequestUserMock.mockReset();
     getMaterialMock.mockReset();
-    getAdminDbMock.mockReset();
-    createWorkerIdMock.mockReset();
-    enqueueMaterialPipelineJobMock.mockReset();
-    isLockStaleMock.mockReset();
-    runJobToCompletionMock.mockReset();
+    wakeCaptionWorkerMock.mockReset();
   });
 
   it("returns 401 when the user is not authenticated", async () => {
@@ -95,7 +72,7 @@ describe("POST /api/materials/[materialId]/prepare", () => {
     await expect(response.json()).resolves.toEqual({ error: "Material not found" });
   });
 
-  it("returns terminal materials without enqueuing", async () => {
+  it("returns terminal materials without waking the worker", async () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
     getMaterialMock.mockResolvedValueOnce(
       buildMaterial({
@@ -115,8 +92,7 @@ describe("POST /api/materials/[materialId]/prepare", () => {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
-    expect(enqueueMaterialPipelineJobMock).not.toHaveBeenCalled();
-    expect(runJobToCompletionMock).not.toHaveBeenCalled();
+    expect(wakeCaptionWorkerMock).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       status: "ready",
@@ -133,11 +109,9 @@ describe("POST /api/materials/[materialId]/prepare", () => {
     });
   });
 
-  it("self-heals a missing job and runs the queue", async () => {
+  it("refreshes state after waking the caption worker", async () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
-    createWorkerIdMock.mockReturnValueOnce("worker-1");
-    enqueueMaterialPipelineJobMock.mockResolvedValueOnce("job-1");
-    runJobToCompletionMock.mockResolvedValueOnce({ result: "done" });
+    wakeCaptionWorkerMock.mockResolvedValueOnce({ ok: true, status: 200 });
     getMaterialMock
       .mockResolvedValueOnce(buildMaterial())
       .mockResolvedValueOnce(
@@ -153,20 +127,12 @@ describe("POST /api/materials/[materialId]/prepare", () => {
           },
         }),
       );
-    getAdminDbMock.mockReturnValue({
-      collection: vi.fn().mockReturnValue({
-        doc: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockJobSnapshot(null)),
-        }),
-      }),
-    });
 
     const response = await POST(new NextRequest("http://localhost/api/materials/mat-1/prepare"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
-    expect(enqueueMaterialPipelineJobMock).toHaveBeenCalledWith("mat-1");
-    expect(runJobToCompletionMock).toHaveBeenCalledWith("material_pipeline:mat-1:v2", "worker-1", 1);
+    expect(wakeCaptionWorkerMock).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       status: "ready",
@@ -183,31 +149,18 @@ describe("POST /api/materials/[materialId]/prepare", () => {
     });
   });
 
-  it("does not re-run a fresh processing job", async () => {
+  it("keeps polling while the refreshed material is still processing", async () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
+    wakeCaptionWorkerMock.mockResolvedValueOnce({ ok: true, status: 200 });
     getMaterialMock
       .mockResolvedValueOnce(buildMaterial())
       .mockResolvedValueOnce(buildMaterial());
-    isLockStaleMock.mockReturnValueOnce(false);
-    getAdminDbMock.mockReturnValue({
-      collection: vi.fn().mockReturnValue({
-        doc: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(
-            mockJobSnapshot({
-              status: "processing",
-              nextRunAt: Timestamp.fromMillis(1_000),
-              lockedAt: Timestamp.fromMillis(Date.now()),
-            }),
-          ),
-        }),
-      }),
-    });
 
     const response = await POST(new NextRequest("http://localhost/api/materials/mat-1/prepare"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
-    expect(runJobToCompletionMock).not.toHaveBeenCalled();
+    expect(wakeCaptionWorkerMock).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       status: "processing",
@@ -224,33 +177,34 @@ describe("POST /api/materials/[materialId]/prepare", () => {
     });
   });
 
-  it("re-runs a stale processing job", async () => {
+  it("returns the current material state even when the worker wake ping fails", async () => {
     resolveRequestUserMock.mockResolvedValueOnce({ uid: "user-1" });
-    createWorkerIdMock.mockReturnValueOnce("worker-2");
+    wakeCaptionWorkerMock.mockResolvedValueOnce({
+      ok: false,
+      reason: "timeout",
+      message: "Worker wake ping timed out.",
+    });
     getMaterialMock
       .mockResolvedValueOnce(buildMaterial())
       .mockResolvedValueOnce(buildMaterial());
-    isLockStaleMock.mockReturnValueOnce(true);
-    runJobToCompletionMock.mockResolvedValueOnce({ result: "processing" });
-    getAdminDbMock.mockReturnValue({
-      collection: vi.fn().mockReturnValue({
-        doc: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(
-            mockJobSnapshot({
-              status: "processing",
-              nextRunAt: Timestamp.fromMillis(1_000),
-              lockedAt: Timestamp.fromMillis(Date.now() - 500_000),
-            }),
-          ),
-        }),
-      }),
-    });
 
     const response = await POST(new NextRequest("http://localhost/api/materials/mat-1/prepare"), {
       params: Promise.resolve({ materialId: "mat-1" }),
     });
 
-    expect(runJobToCompletionMock).toHaveBeenCalledWith("material_pipeline:mat-1:v2", "worker-2", 1);
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "processing",
+      pipelineState: {
+        currentStep: "captions",
+        lastCompletedStep: "meta",
+        status: "processing",
+        updatedAt: { seconds: 2, nanoseconds: 0 },
+        errorCode: "",
+        errorMessage: "",
+      },
+      shouldContinuePolling: true,
+      error: "",
+    });
   });
 });

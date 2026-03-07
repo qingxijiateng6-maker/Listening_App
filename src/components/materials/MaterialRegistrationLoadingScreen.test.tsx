@@ -126,6 +126,38 @@ describe("MaterialRegistrationLoadingScreen", () => {
     });
   });
 
+  it("shows an error when polling is told to stop before the material is ready", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        materialId: "mat1",
+        status: "processing",
+      }),
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "processing",
+        shouldContinuePolling: false,
+        pipelineState: {
+          currentStep: "captions",
+          lastCompletedStep: "meta",
+          status: "processing",
+          updatedAt: { seconds: 2, nanoseconds: 0 },
+          errorCode: "",
+          errorMessage: "",
+        },
+      }),
+    });
+
+    render(<MaterialRegistrationLoadingScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText("登録エラー")).toBeInTheDocument();
+      expect(screen.getByText("字幕の準備を完了できませんでした。")).toBeInTheDocument();
+    });
+  });
+
   it("shows an error instead of routing when the ready material still has no subtitle segments", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
