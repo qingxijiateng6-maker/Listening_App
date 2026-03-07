@@ -238,8 +238,9 @@ firebase deploy --only firestore:rules
 
 1. リポジトリを接続する
 2. `.env.example` の値を Environment Variables に設定する
-3. `CRON_SECRET` を設定し、`/api/cron/jobs` を 1 分ごとに定期実行できるようにする
-4. Preview / Production をデプロイする
+3. `CRON_SECRET` を設定する
+4. Hobby では `vercel.json` の cron は日次のみなので、より短い間隔が必要なら外部スケジューラを使う
+5. Preview / Production をデプロイする
 
 ## 外部スケジューラ
 
