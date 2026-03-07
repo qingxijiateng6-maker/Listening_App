@@ -2,12 +2,12 @@
 
 YouTube の公開動画を教材化し、字幕を見ながら学習した表現を自分で保存していくリスニング学習アプリです。
 
-以前の「表現を自動抽出して、意味や例文も自動生成する」仕様ではなく、現在は学習者が必要な表現を手動で保存する構成になっています。
+現在は、字幕取得本体を Vercel ではなく Cloud Run の caption worker に分離しています。Next.js 側は教材登録、認証、Firestore CRUD、Cloud Run worker の wake ping だけを担当します。
 
 ## 現在の仕様
 
 - YouTube 公開動画 URL を登録すると教材を作成する
-- 動画メタ情報と字幕を取得し、教材として保存する
+- 動画メタ情報と字幕は Cloud Run worker が取得し、Firestore に保存する
 - 学習画面で表現・意味・例文を自分で入力して保存する
 - 保存した表現ごとに、その表現を含む字幕シーンを学習画面で参照できる
 - 保存した表現を動画単位で一覧表示できる
@@ -29,38 +29,20 @@ YouTube の公開動画を教材化し、字幕を見ながら学習した表現
 - フロントエンド: Next.js 15 / React 19 / App Router
 - 認証: Firebase Authentication
 - データベース: Firestore
-- サーバー処理: Next.js Route Handlers + `firebase-admin`
-- 非同期処理: Firestore `jobs` コレクション + Worker API
+- Web サーバー処理: Next.js Route Handlers + `firebase-admin`
+- 非同期処理: Firestore `jobs` + Cloud Run caption worker
+- スケジューラ: Cloud Scheduler
+- シークレット管理: Google Secret Manager
 - テスト: Vitest + Testing Library
-
-## データ構造
-
-主要コレクションは次の通りです。
-
-| パス | 用途 |
-| --- | --- |
-| `materials/{materialId}` | 教材メタ情報 |
-| `materials/{materialId}/segments/{segmentId}` | 字幕セグメント |
-| `materials/{materialId}/expressions/{expressionId}` | ユーザーが保存した表現 |
-| `materials/{materialId}/_pipeline/state:{version}` | 教材生成の内部状態 |
-| `jobs/{jobId}` | 教材生成ジョブ |
-
-`expressions` には少なくとも次の情報を保存します。
-
-- `expression`
-- `meaning`
-- `exampleSentence`
-- `createdAt`
-- `updatedAt`
 
 ## 教材生成フロー
 
 1. `POST /api/materials` で YouTube URL を登録する
 2. 動画 URL を検証し、同一ユーザー内の重複教材を再利用する
-3. `jobs/{jobId}` に `material_pipeline` ジョブを投入する
-4. ローディング画面の `POST /api/materials/[materialId]/prepare` が対象ジョブを継続実行する
-5. `meta` -> `captions` -> `format` の順に処理する
-6. ローディング画面の待機確認が表示されても `prepare` の polling は継続する
+3. Web 側が `jobs/{jobId}` に `material_pipeline` ジョブを投入する
+4. Web 側が Cloud Run caption worker に wake ping を送る
+5. Cloud Run worker が `meta -> captions -> format` を実行する
+6. ローディング画面の `POST /api/materials/[materialId]/prepare` は worker を再度 wake しつつ最新状態を返す
 7. 完了後、`materials` と `segments` に教材データを保存する
 
 字幕生成後の表現保存はパイプラインではなく、学習画面のフォームから明示的に行います。
@@ -74,79 +56,33 @@ YouTube の公開動画を教材化し、字幕を見ながら学習した表現
 | `GET` | `/api/materials` | 自分の教材一覧を取得 |
 | `POST` | `/api/materials` | YouTube URL から教材を登録 |
 | `GET` | `/api/materials/[materialId]` | 教材詳細を取得 |
-| `POST` | `/api/materials/[materialId]/prepare` | 教材生成ジョブを継続し、最新状態を返す |
+| `POST` | `/api/materials/[materialId]/prepare` | Cloud Run worker を wake し、最新状態を返す |
 | `DELETE` | `/api/materials/[materialId]` | 教材を削除 |
 | `GET` | `/api/materials/[materialId]/segments` | 字幕一覧を取得 |
 | `GET` | `/api/materials/[materialId]/expressions` | 保存済み表現一覧を取得 |
 | `POST` | `/api/materials/[materialId]/expressions` | 表現を保存 |
 | `DELETE` | `/api/materials/[materialId]/expressions/[expressionId]` | 表現を削除 |
 
-### Worker / 運用 API
+### Cloud Run worker 側 endpoint
 
-| メソッド | パス | 用途 |
-| --- | --- | --- |
-| `POST` | `/api/jobs/dispatch` | ジョブロック補助 API |
-| `POST` | `/api/worker/jobs/dispatch` | due job をロックして実行 |
-| `POST` | `/api/worker/jobs/recover-stale` | stale lock 回収 |
-| `POST` | `/api/worker/material-pipeline` | 単一ジョブ実行 |
-| `GET` | `/api/cron/jobs` | cron 互換の入口 |
+この Next.js アプリ内には route を持たせず、Cloud Run service 側で次を提供します。
 
-## 認証
+- `GET /healthz`
+- `POST /internal/jobs/dispatch`
 
-- クライアントは Firebase Authentication で匿名ユーザーを自動作成します
-- 必要に応じて Google ログインへ切り替えられます
-- API は Firebase ID token を `Authorization: Bearer <token>` として受け取り、サーバー側で検証します
-- Firestore への主な読み書きはクライアント SDK 直叩きではなく、Next.js API 経由です
+`POST /internal/jobs/dispatch` は worker 用の dispatch secret を前提にします。Web 側では同じ値を `CAPTION_WORKER_TOKEN` として保持し、wake ping に使います。
 
-## ディレクトリ構成
+## データ構造
 
-```text
-.
-|-- docs/
-|   `-- OPERATIONS.md
-|-- src/
-|   |-- app/
-|   |   |-- api/
-|   |   |   |-- cron/
-|   |   |   |-- jobs/
-|   |   |   |-- materials/
-|   |   |   `-- worker/
-|   |   |-- expressions/
-|   |   |-- materials/
-|   |   |-- globals.css
-|   |   |-- layout.tsx
-|   |   `-- page.tsx
-|   |-- components/
-|   |   |-- auth/
-|   |   |-- firebase/
-|   |   `-- materials/
-|   |-- lib/
-|   |   |-- firebase/
-|   |   |-- jobs/
-|   |   |-- server/
-|   |   `-- youtube.ts
-|   |-- pages/
-|   |   `-- _app.tsx
-|   |-- test/
-|   `-- types/
-|-- firestore.rules
-|-- firebase.json
-|-- next.config.ts
-|-- package.json
-|-- vercel.json
-`-- vitest.config.ts
-```
+主要コレクションは次の通りです。
 
-補足:
-
-- `src/components/materials/`
-  学習画面、動画登録、履歴、保存表現一覧など UI の中心
-- `src/lib/jobs/`
-  教材生成パイプラインとジョブ制御
-- `src/lib/server/materials.ts`
-  教材・字幕・保存表現のサーバー側 CRUD
-- `src/lib/server/llm/`
-  現在の主要導線では未使用だが、将来拡張用の LLM 基盤コード
+| パス | 用途 |
+| --- | --- |
+| `materials/{materialId}` | 教材メタ情報 |
+| `materials/{materialId}/segments/{segmentId}` | 字幕セグメント |
+| `materials/{materialId}/expressions/{expressionId}` | ユーザーが保存した表現 |
+| `materials/{materialId}/_pipeline/state:{version}` | 教材生成の内部状態 |
+| `jobs/{jobId}` | 教材生成ジョブ |
 
 ## セットアップ
 
@@ -155,6 +91,9 @@ YouTube の公開動画を教材化し、字幕を見ながら学習した表現
 - Node.js 20 以上
 - Firebase プロジェクト
 - Vercel プロジェクト
+- Cloud Run にデプロイ済みの caption worker
+- Cloud Scheduler
+- Secret Manager
 
 ### インストール
 
@@ -185,10 +124,12 @@ cp .env.example .env.local
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`
 
-#### Internal API Auth
+#### Cloud Run worker wake ping
 
-- `CRON_SECRET`
-- `WORKER_SECRET`
+- `CAPTION_WORKER_BASE_URL`
+- `CAPTION_WORKER_TOKEN`
+
+`CAPTION_WORKER_TOKEN` は Cloud Run worker 側の dispatch secret と同じ値を使います。
 
 #### Optional
 
@@ -210,6 +151,7 @@ npm run dev
 - 匿名ログインが開始される
 - YouTube URL の登録画面が表示される
 - Firebase 初期化エラーが出ない
+- `POST /api/materials` 後に Cloud Run worker への wake ping が失敗しても、教材登録 API 自体は 200 を返す
 
 ## 開発コマンド
 
@@ -227,30 +169,44 @@ npm run build
 1. Authentication で Anonymous を有効化する
 2. 必要なら Google ログインも有効化する
 3. Firestore を Native モードで作成する
-4. Service Account を発行し、Vercel に環境変数を設定する
+4. Service Account を発行し、Vercel と Cloud Run に必要な権限を付与する
 5. 必要に応じて Firestore Rules を反映する
 
 ```bash
 firebase deploy --only firestore:rules
 ```
 
+### Cloud Run
+
+1. caption worker を Cloud Run にデプロイする
+2. Secret Manager に worker 用 dispatch secret を登録する
+3. 必要なら YouTube cookies を Secret Manager または volume mount で worker に渡す
+4. worker 側に Firestore へアクセスできる service account を付与する
+5. `POST /internal/jobs/dispatch` が dispatch secret 付きで 2xx を返すことを確認する
+
+### Cloud Scheduler
+
+1. Cloud Run worker の `POST /internal/jobs/dispatch` を呼ぶ job を作成する
+2. 実行頻度は 5 分ごとを基本にする
+3. `Authorization: Bearer <dispatch-secret>` を header に設定する
+4. Scheduler 実行履歴で 2xx を確認する
+
+### Secret Manager
+
+最低限、次の secret を管理対象にします。
+
+- caption worker dispatch secret
+- worker が cookies を必要とする場合の cookies secret
+
+Vercel 側の `CAPTION_WORKER_TOKEN` には caption worker dispatch secret と同じ値を設定します。
+
 ### Vercel
 
 1. リポジトリを接続する
 2. `.env.example` の値を Environment Variables に設定する
-3. `CRON_SECRET` を設定する
-4. Hobby では `vercel.json` の cron は日次のみなので、より短い間隔が必要なら外部スケジューラを使う
+3. `CAPTION_WORKER_BASE_URL` に Cloud Run service URL を設定する
+4. `CAPTION_WORKER_TOKEN` に Secret Manager の caption worker dispatch secret と同じ値を設定する
 5. Preview / Production をデプロイする
-
-## 外部スケジューラ
-
-ローディング画面の `prepare` API が即時の継続実行を担当し、定期スケジューラは取りこぼした job の再処理と stale lock 回収を担当します。
-
-推奨エンドポイント:
-
-- `POST /api/worker/jobs/dispatch`
-- `POST /api/worker/jobs/recover-stale`
-- `GET /api/cron/jobs`
 
 ## テスト
 
@@ -260,9 +216,9 @@ firebase deploy --only firestore:rules
 - 学習画面での表現保存、字幕マッチ表示、削除
 - 保存表現一覧、履歴一覧、認証 UI
 - API route の認可とレスポンス
-- ジョブキューと字幕整形ロジック
+- Cloud Run wake ping client
+- ジョブ投入と字幕 parser / formatting utility
 
 ## 補足ドキュメント
 
 - 運用手順: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
-

@@ -1,96 +1,124 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Timestamp } from "firebase-admin/firestore";
-import {
-  buildJobFailureDetails,
-  buildPipelineProgressState,
-  computeBackoffSeconds,
-  isLockStale,
-} from "@/lib/jobs/queue";
 
-describe("queue retry policy", () => {
-  it("uses exponential backoff", () => {
-    expect(computeBackoffSeconds(1)).toBe(30);
-    expect(computeBackoffSeconds(2)).toBe(60);
-    expect(computeBackoffSeconds(3)).toBe(120);
+type StoredValue = Record<string, unknown>;
+
+class MockTransaction {
+  constructor(private readonly docs: Map<string, StoredValue>) {}
+
+  async get(ref: { path: string }) {
+    const value = this.docs.get(ref.path);
+    return {
+      exists: value !== undefined,
+      data: () => (value ? structuredClone(value) : undefined),
+    };
+  }
+
+  create(ref: { path: string }, value: StoredValue) {
+    this.docs.set(ref.path, structuredClone(value));
+  }
+
+  update(ref: { path: string }, value: StoredValue) {
+    const previous = this.docs.get(ref.path) ?? {};
+    this.docs.set(ref.path, { ...structuredClone(previous), ...structuredClone(value) });
+  }
+}
+
+class MockDb {
+  readonly docs = new Map<string, StoredValue>();
+
+  collection(name: string) {
+    return {
+      doc: (id: string) => ({
+        path: `${name}/${id}`,
+      }),
+    };
+  }
+
+  async runTransaction(callback: (tx: MockTransaction) => Promise<void>) {
+    await callback(new MockTransaction(this.docs));
+  }
+}
+
+const getAdminDbMock = vi.fn();
+
+vi.mock("@/lib/firebase/admin", () => ({
+  getAdminDb: () => getAdminDbMock(),
+}));
+
+import { enqueueMaterialPipelineJob } from "@/lib/jobs/queue";
+
+describe("enqueueMaterialPipelineJob", () => {
+  beforeEach(() => {
+    getAdminDbMock.mockReset();
   });
-});
 
-describe("job lock policy", () => {
-  it("marks stale lock when lockedAt is too old", () => {
-    const now = Timestamp.fromMillis(1_000_000);
-    const old = Timestamp.fromMillis(1_000_000 - 11 * 60 * 1000);
-    expect(isLockStale(old, now)).toBe(true);
-  });
-
-  it("keeps lock valid when within ttl", () => {
-    const now = Timestamp.fromMillis(1_000_000);
-    const recent = Timestamp.fromMillis(1_000_000 - 60 * 1000);
-    expect(isLockStale(recent, now)).toBe(false);
-  });
-});
-
-describe("material pipeline progress state", () => {
-  it("keeps material status and pipelineState aligned for intermediate steps", () => {
-    const now = Timestamp.fromMillis(2_000_000);
-    const progress = buildPipelineProgressState("meta", now);
-
-    expect(progress.materialStatus).toBe("processing");
-    expect(progress.jobStatus).toBe("processing");
-    expect(progress.jobStep).toBe("captions");
-    expect(progress.pipelineState).toMatchObject({
-      currentStep: "captions",
-      lastCompletedStep: "meta",
+  it("creates a queued job and initializes the material pipeline state", async () => {
+    const db = new MockDb();
+    db.docs.set("materials/mat-1", {
       status: "processing",
-      updatedAt: now,
+      pipelineVersion: "v1",
+      updatedAt: Timestamp.fromMillis(1),
+    });
+    getAdminDbMock.mockReturnValueOnce(db);
+
+    const jobId = await enqueueMaterialPipelineJob("mat-1");
+
+    expect(jobId).toBe("material_pipeline:mat-1:v2");
+    expect(db.docs.get("jobs/material_pipeline:mat-1:v2")).toMatchObject({
+      type: "material_pipeline",
+      materialId: "mat-1",
+      pipelineVersion: "v2",
+      status: "queued",
+      step: "meta",
+      attempt: 0,
+      lockedBy: "",
       errorCode: "",
       errorMessage: "",
     });
+    expect(db.docs.get("materials/mat-1")).toMatchObject({
+      status: "queued",
+      pipelineVersion: "v2",
+      pipelineState: {
+        currentStep: "meta",
+        lastCompletedStep: null,
+        status: "queued",
+        errorCode: "",
+        errorMessage: "",
+      },
+    });
   });
 
-  it("marks format as the ready terminal state", () => {
-    const now = Timestamp.fromMillis(3_000_000);
-    const progress = buildPipelineProgressState("format", now);
+  it("keeps an existing job untouched", async () => {
+    const db = new MockDb();
+    db.docs.set("jobs/material_pipeline:mat-1:v2", {
+      type: "material_pipeline",
+      materialId: "mat-1",
+      pipelineVersion: "v2",
+      status: "queued",
+    });
+    getAdminDbMock.mockReturnValueOnce(db);
 
-    expect(progress.materialStatus).toBe("ready");
-    expect(progress.jobStatus).toBe("done");
-    expect(progress.jobStep).toBe("format");
-    expect(progress.pipelineState).toMatchObject({
-      currentStep: "format",
-      lastCompletedStep: "format",
+    await enqueueMaterialPipelineJob("mat-1");
+
+    expect(db.docs.size).toBe(1);
+  });
+
+  it("skips job creation for an already-ready material on the current pipeline version", async () => {
+    const db = new MockDb();
+    db.docs.set("materials/mat-1", {
       status: "ready",
-      updatedAt: now,
-      errorCode: "",
-      errorMessage: "",
+      pipelineVersion: "v2",
+      updatedAt: Timestamp.fromMillis(1),
     });
-  });
-});
+    getAdminDbMock.mockReturnValueOnce(db);
 
-describe("material pipeline failure details", () => {
-  it("uses a step-specific retry error for transient failures", () => {
-    const details = buildJobFailureDetails("captions", 0, new Error("caption fetch exploded"));
+    await enqueueMaterialPipelineJob("mat-1");
 
-    expect(details.isPermanentFailure).toBe(false);
-    expect(details.nextAttempt).toBe(1);
-    expect(details.errorCode).toBe("material_pipeline_captions_retrying");
-    expect(details.errorMessage).toContain('step "captions" retrying on attempt 1/6: caption fetch exploded');
-  });
-
-  it("marks the final attempt as a permanent step failure", () => {
-    const details = buildJobFailureDetails("format", 5, new Error("segment write denied"));
-
-    expect(details.isPermanentFailure).toBe(true);
-    expect(details.nextAttempt).toBe(6);
-    expect(details.errorCode).toBe("material_pipeline_format_failed");
-    expect(details.errorMessage).toContain('step "format" failed on attempt 6/6: segment write denied');
-  });
-
-  it("includes coded pipeline failures in the error code", () => {
-    const error = Object.assign(new Error("captions unavailable"), {
-      code: "captions_not_found",
+    expect(db.docs.has("jobs/material_pipeline:mat-1:v2")).toBe(false);
+    expect(db.docs.get("materials/mat-1")).toMatchObject({
+      status: "ready",
+      pipelineVersion: "v2",
     });
-
-    const details = buildJobFailureDetails("captions", 5, error);
-
-    expect(details.errorCode).toBe("material_pipeline_captions_captions_not_found_failed");
   });
 });

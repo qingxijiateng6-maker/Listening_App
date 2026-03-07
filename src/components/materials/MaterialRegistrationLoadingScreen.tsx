@@ -41,6 +41,10 @@ type MaterialSegmentsResponse = {
 
 const PREPARE_POLL_INTERVAL_MS = 1500;
 
+function isTerminalStatus(status: MaterialStatus | undefined): boolean {
+  return status === "ready" || status === "failed" || status === "cancelled";
+}
+
 function buildLoadingMessage(status: MaterialStatus | undefined, pipelineState: PipelineState | undefined): string {
   if (status === "failed") {
     return pipelineState?.errorMessage?.trim() || "字幕の準備に失敗しました。";
@@ -232,6 +236,18 @@ export function MaterialRegistrationLoadingScreen() {
               error: payload.error,
               status: payload.status,
               pipelineState: payload.pipelineState,
+            }),
+          );
+          return;
+        }
+
+        const shouldContinuePolling = payload?.shouldContinuePolling ?? !isTerminalStatus(payload?.status);
+        if (!shouldContinuePolling) {
+          setError(
+            buildPrepareErrorMessage({
+              error: payload?.error,
+              status: payload?.status,
+              pipelineState: payload?.pipelineState,
             }),
           );
           return;
