@@ -102,6 +102,7 @@ type InnertubeContext = {
 };
 
 type InnertubeClientConfig = {
+  label: string;
   body: Record<string, unknown>;
   clientNameHeader: string;
   clientVersionHeader: string;
@@ -214,6 +215,14 @@ function buildRequestHeaders(options?: {
   }
 
   return headers;
+}
+
+function logCaptionFetch(event: string, details: Record<string, unknown>): void {
+  try {
+    console.info("[caption-fetch]", event, JSON.stringify(details));
+  } catch {
+    console.info("[caption-fetch]", event, details);
+  }
 }
 
 function buildSegmentId(index: number): string {
@@ -692,19 +701,27 @@ async function fetchInnertubePlayerResponse(
   youtubeId: string,
   sourceUrl: string,
   context: InnertubeContext,
+  debugContext: { materialId: string },
 ): Promise<WatchPagePlayerResponse | null> {
   if (!context.apiKey) {
+    logCaptionFetch("innertube_skipped_missing_api_key", {
+      materialId: debugContext.materialId,
+      youtubeId,
+      sourceUrl,
+    });
     return null;
   }
 
   const clientConfigs: InnertubeClientConfig[] = [
     {
+      label: "ANDROID",
       body: JSON.parse(buildAndroidPlayerRequestBody(youtubeId, context.visitorData)) as Record<string, unknown>,
       clientNameHeader: DEFAULT_ANDROID_INNERTUBE_CLIENT_NAME,
       clientVersionHeader: DEFAULT_ANDROID_INNERTUBE_CLIENT_VERSION,
       userAgent: DEFAULT_ANDROID_INNERTUBE_USER_AGENT,
     },
     {
+      label: "IOS",
       body: JSON.parse(buildIosPlayerRequestBody(youtubeId, context.visitorData)) as Record<string, unknown>,
       clientNameHeader: DEFAULT_IOS_INNERTUBE_CLIENT_NAME,
       clientVersionHeader: DEFAULT_IOS_INNERTUBE_CLIENT_VERSION,
@@ -735,11 +752,27 @@ async function fetchInnertubePlayerResponse(
     );
 
     if (!response.ok) {
+      logCaptionFetch("innertube_http_error", {
+        materialId: debugContext.materialId,
+        youtubeId,
+        sourceUrl,
+        client: clientConfig.label,
+        status: response.status,
+      });
       continue;
     }
 
     try {
       const playerResponse = (await response.json()) as WatchPagePlayerResponse;
+      const trackCount =
+        playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks?.length ?? 0;
+      logCaptionFetch("innertube_response", {
+        materialId: debugContext.materialId,
+        youtubeId,
+        sourceUrl,
+        client: clientConfig.label,
+        trackCount,
+      });
       if (hasCaptionTracks(playerResponse)) {
         return playerResponse;
       }
@@ -755,8 +788,10 @@ async function fetchInnertubePlayerResponse(
 }
 
 async function fetchPlayerResponseFromHtmlSource(input: {
+  materialId: string;
   youtubeId: string;
   sourceUrl: string;
+  sourceLabel: string;
   referer: string;
   userAgent?: string;
 }): Promise<WatchPagePlayerResponse | null> {
@@ -767,11 +802,27 @@ async function fetchPlayerResponseFromHtmlSource(input: {
     }),
   });
   if (!response.ok) {
+    logCaptionFetch("html_source_http_error", {
+      materialId: input.materialId,
+      youtubeId: input.youtubeId,
+      source: input.sourceLabel,
+      sourceUrl: input.sourceUrl,
+      status: response.status,
+    });
     return null;
   }
 
   const rawHtml = await response.text();
   const playerResponseFromHtml = extractPlayerResponseFromWatchHtml(rawHtml);
+  const htmlTrackCount =
+    playerResponseFromHtml?.captions?.playerCaptionsTracklistRenderer?.captionTracks?.length ?? 0;
+  logCaptionFetch("html_source_response", {
+    materialId: input.materialId,
+    youtubeId: input.youtubeId,
+    source: input.sourceLabel,
+    sourceUrl: input.sourceUrl,
+    htmlTrackCount,
+  });
   if (hasCaptionTracks(playerResponseFromHtml)) {
     return playerResponseFromHtml;
   }
@@ -782,6 +833,7 @@ async function fetchPlayerResponseFromHtmlSource(input: {
       input.youtubeId,
       input.sourceUrl,
       innertubeContext,
+      { materialId: input.materialId },
     );
     if (hasCaptionTracks(innertubePlayerResponse)) {
       return innertubePlayerResponse;
@@ -793,19 +845,25 @@ async function fetchPlayerResponseFromHtmlSource(input: {
   return playerResponseFromHtml;
 }
 
-async function fetchWatchPagePlayerResponse(youtubeId: string): Promise<WatchPagePlayerResponse | null> {
+async function fetchWatchPagePlayerResponse(
+  materialId: string,
+  youtubeId: string,
+): Promise<WatchPagePlayerResponse | null> {
   const candidates = [
     {
+      sourceLabel: "watch",
       sourceUrl: buildWatchPageUrl(youtubeId),
       referer: "https://www.youtube.com/",
       userAgent: getWebUserAgent(),
     },
     {
+      sourceLabel: "mobile_watch",
       sourceUrl: buildMobileWatchPageUrl(youtubeId),
       referer: "https://m.youtube.com/",
       userAgent: DEFAULT_MOBILE_WEB_USER_AGENT,
     },
     {
+      sourceLabel: "embed",
       sourceUrl: buildEmbedPageUrl(youtubeId),
       referer: "https://www.youtube.com/",
       userAgent: getWebUserAgent(),
@@ -815,7 +873,9 @@ async function fetchWatchPagePlayerResponse(youtubeId: string): Promise<WatchPag
   let fallbackResponse: WatchPagePlayerResponse | null = null;
   for (const candidate of candidates) {
     const response = await fetchPlayerResponseFromHtmlSource({
+      materialId,
       youtubeId,
+      sourceLabel: candidate.sourceLabel,
       sourceUrl: candidate.sourceUrl,
       referer: candidate.referer,
       userAgent: candidate.userAgent,
@@ -1147,13 +1207,27 @@ function createFetchCaptionProvider(): CaptionProvider {
   return {
     async fetchCaptions(input) {
       try {
+        logCaptionFetch("fetch_start", {
+          materialId: input.materialId,
+          youtubeId: input.youtubeId,
+          youtubeUrl: input.youtubeUrl,
+        });
         const watchUrl = buildWatchPageUrl(input.youtubeId);
-        const playerResponse = await fetchWatchPagePlayerResponse(input.youtubeId);
+        const playerResponse = await fetchWatchPagePlayerResponse(input.materialId, input.youtubeId);
         const rankedTracks = playerResponse
           ? rankWatchPageCaptionTracks(extractCaptionTracksFromPlayerResponse(playerResponse))
           : [];
+        logCaptionFetch("tracks_ranked", {
+          materialId: input.materialId,
+          youtubeId: input.youtubeId,
+          trackCount: rankedTracks.length,
+        });
 
         if (rankedTracks.length === 0) {
+          logCaptionFetch("tracks_unavailable", {
+            materialId: input.materialId,
+            youtubeId: input.youtubeId,
+          });
           return {
             status: "unavailable",
             source: "youtube_captions",
@@ -1171,7 +1245,22 @@ function createFetchCaptionProvider(): CaptionProvider {
               const downloaded = await downloadCaptionPayload(candidate.url, candidate.extensionHint, watchUrl);
               sawDownloadedPayload = true;
               const cues = parseCaptionPayload(downloaded.text, downloaded.contentType, candidate.extensionHint);
+              logCaptionFetch("track_candidate_result", {
+                materialId: input.materialId,
+                youtubeId: input.youtubeId,
+                languageCode: track.languageCode,
+                kind: track.kind ?? "",
+                candidateUrl: candidate.url,
+                cueCount: cues.length,
+              });
               if (cues.length > 0) {
+                logCaptionFetch("fetch_success", {
+                  materialId: input.materialId,
+                  youtubeId: input.youtubeId,
+                  languageCode: track.languageCode,
+                  kind: track.kind ?? "",
+                  cueCount: cues.length,
+                });
                 return {
                   status: "fetched",
                   source: "youtube_captions",
@@ -1180,12 +1269,24 @@ function createFetchCaptionProvider(): CaptionProvider {
                 };
               }
             } catch (error) {
+              logCaptionFetch("track_candidate_error", {
+                materialId: input.materialId,
+                youtubeId: input.youtubeId,
+                languageCode: track.languageCode,
+                kind: track.kind ?? "",
+                candidateUrl: candidate.url,
+                message: error instanceof Error ? error.message : "Unknown caption download error",
+              });
               lastError = error instanceof Error ? error : new Error("Failed to download YouTube captions.");
             }
           }
         }
 
         if (sawDownloadedPayload) {
+          logCaptionFetch("downloaded_payload_empty", {
+            materialId: input.materialId,
+            youtubeId: input.youtubeId,
+          });
           return {
             status: "unavailable",
             source: "youtube_captions",
@@ -1196,6 +1297,11 @@ function createFetchCaptionProvider(): CaptionProvider {
 
         throw lastError ?? new Error("Failed to download YouTube captions.");
       } catch (error) {
+        logCaptionFetch("fetch_failed", {
+          materialId: input.materialId,
+          youtubeId: input.youtubeId,
+          message: error instanceof Error ? error.message : "YouTube captions failed to fetch.",
+        });
         return {
           status: "unavailable",
           source: "youtube_captions",
