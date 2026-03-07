@@ -1,0 +1,10 @@
+{
+  "name": "@listening-app/material-pipeline-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ]
+}

@@ -1,13 +1,15 @@
 import { Timestamp } from "firebase-admin/firestore";
+import type {
+  CaptionFetchResult,
+  FormattedSegment,
+  MaterialPipelineStepInput,
+} from "@listening-app/material-pipeline-core";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { MATERIAL_PIPELINE_BATCH_WRITE_LIMIT } from "@/lib/constants";
 import {
   formatCaptionCues,
   getMaterialPipelineCaptionProvider,
-  type CaptionFetchResult,
-  type FormattedSegment,
 } from "@/lib/jobs/materialPipelineCaptions";
-import type { JobStep } from "@/types/domain";
 
 type PipelineState = {
   meta?: {
@@ -271,11 +273,7 @@ async function runFormat(materialId: string, pipelineVersion: string): Promise<v
   });
 }
 
-export async function runMaterialPipelineStep(input: {
-  materialId: string;
-  pipelineVersion: string;
-  step: JobStep;
-}): Promise<void> {
+export async function runMaterialPipelineStep(input: MaterialPipelineStepInput): Promise<void> {
   switch (input.step) {
     case "meta":
       await runMeta(input.materialId, input.pipelineVersion);

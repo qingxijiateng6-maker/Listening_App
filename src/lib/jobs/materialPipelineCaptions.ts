@@ -1,52 +1,22 @@
-export type CaptionCue = {
-  startMs: number;
-  endMs: number;
-  text: string;
-};
+import type {
+  CaptionCue,
+  CaptionProvider,
+  FormattedSegment,
+  SubtitleMetadata,
+} from "@listening-app/material-pipeline-core";
 
-export type CaptionProviderInput = {
-  materialId: string;
-  youtubeId: string;
-  youtubeUrl: string;
-};
-
-type CaptionMetadata = {
-  title?: string;
-  channel?: string;
-  durationSec?: number;
-};
+export type {
+  CaptionCue,
+  CaptionFetchResult,
+  CaptionProvider,
+  CaptionProviderInput,
+  FormattedSegment,
+  SubtitleMetadata,
+} from "@listening-app/material-pipeline-core";
 
 type CaptionTrackLookupResult = {
   tracks: WatchPageCaptionTrack[];
-  metadata?: CaptionMetadata;
-};
-
-export type CaptionFetchResult =
-  | {
-      status: "fetched";
-      source: "youtube_captions";
-      cues: CaptionCue[];
-      metadata?: CaptionMetadata;
-    }
-  | {
-      status: "unavailable";
-      source: "youtube_captions";
-      reason:
-        | "captions_not_found"
-        | "captions_provider_not_configured"
-        | "captions_provider_failed";
-      message: string;
-    };
-
-export type CaptionProvider = {
-  fetchCaptions(input: CaptionProviderInput): Promise<CaptionFetchResult>;
-};
-
-export type FormattedSegment = {
-  id: string;
-  startMs: number;
-  endMs: number;
-  text: string;
+  metadata?: SubtitleMetadata;
 };
 
 type CommandInvocation = {
@@ -387,7 +357,7 @@ function parseLengthSeconds(raw: string | undefined): number | undefined {
   return parsed;
 }
 
-function toWatchPageMetadata(playerResponse: WatchPagePlayerResponse): CaptionMetadata {
+function toWatchPageMetadata(playerResponse: WatchPagePlayerResponse): SubtitleMetadata {
   return {
     title: playerResponse.videoDetails?.title?.trim() || undefined,
     channel: playerResponse.videoDetails?.author?.trim() || undefined,
@@ -395,7 +365,7 @@ function toWatchPageMetadata(playerResponse: WatchPagePlayerResponse): CaptionMe
   };
 }
 
-function hasMetadata(metadata: CaptionMetadata | undefined): metadata is CaptionMetadata {
+function hasMetadata(metadata: SubtitleMetadata | undefined): metadata is SubtitleMetadata {
   return Boolean(metadata?.title || metadata?.channel || metadata?.durationSec);
 }
 
@@ -1236,7 +1206,7 @@ async function fetchYoutubeJsCaptionTracks(input: {
     const tracks = rankWatchPageCaptionTracks(
       normalizeYoutubeJsCaptionTracks(info.captions?.caption_tracks),
     );
-    const metadata: CaptionMetadata = {
+    const metadata: SubtitleMetadata = {
       title: info.basic_info?.title?.trim() || undefined,
       channel: info.basic_info?.author?.trim() || undefined,
       durationSec:
