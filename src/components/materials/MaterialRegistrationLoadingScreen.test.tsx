@@ -1,7 +1,8 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MaterialRegistrationLoadingScreen } from "@/components/materials/MaterialRegistrationLoadingScreen";
+import { MATERIAL_PREPARE_CONTINUATION_CONFIRMATION_AFTER_MS } from "@/lib/constants";
 
 const replaceMock = vi.fn();
 const fetchMock = vi.fn();
@@ -24,6 +25,7 @@ vi.mock("@/lib/firebase/auth", () => ({
 
 describe("MaterialRegistrationLoadingScreen", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     replaceMock.mockReset();
     fetchMock.mockReset();
     buildAuthenticatedRequestHeadersMock.mockReset();
@@ -162,4 +164,71 @@ describe("MaterialRegistrationLoadingScreen", () => {
 
     expect(replaceMock).not.toHaveBeenCalled();
   });
+
+  it("keeps polling after the long-wait prompt appears", async () => {
+    vi.useFakeTimers();
+    let prepareCount = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/materials") {
+        return {
+          ok: true,
+          json: async () => ({
+            materialId: "mat1",
+            status: "processing",
+          }),
+        };
+      }
+
+      if (url === "/api/materials/mat1/prepare") {
+        prepareCount += 1;
+        const isReady = prepareCount >= 82;
+        return {
+          ok: true,
+          json: async () => ({
+            status: isReady ? "ready" : "processing",
+            pipelineState: {
+              currentStep: isReady ? "format" : "captions",
+              lastCompletedStep: isReady ? "format" : "meta",
+              status: isReady ? "ready" : "processing",
+              updatedAt: { seconds: isReady ? 3 : 2, nanoseconds: 0 },
+              errorCode: "",
+              errorMessage: "",
+            },
+          }),
+        };
+      }
+
+      if (url === "/api/materials/mat1/segments") {
+        return {
+          ok: true,
+          json: async () => ({
+            segments: [{ segmentId: "seg-1", startMs: 0, endMs: 1000, text: "Hello world" }],
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await act(async () => {
+      render(<MaterialRegistrationLoadingScreen />);
+      await Promise.resolve();
+    });
+    expect(prepareCount).toBeGreaterThan(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MATERIAL_PREPARE_CONTINUATION_CONFIRMATION_AFTER_MS);
+    });
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    const prepareCountAtPrompt = prepareCount;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(prepareCount).toBeGreaterThan(prepareCountAtPrompt);
+    expect(replaceMock).toHaveBeenCalledWith("/materials/mat1");
+  }, 10000);
 });

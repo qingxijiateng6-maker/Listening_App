@@ -60,7 +60,8 @@ YouTube の公開動画を教材化し、字幕を見ながら学習した表現
 3. `jobs/{jobId}` に `material_pipeline` ジョブを投入する
 4. ローディング画面の `POST /api/materials/[materialId]/prepare` が対象ジョブを継続実行する
 5. `meta` -> `captions` -> `format` の順に処理する
-6. 完了後、`materials` と `segments` に教材データを保存する
+6. ローディング画面の待機確認が表示されても `prepare` の polling は継続する
+7. 完了後、`materials` と `segments` に教材データを保存する
 
 字幕生成後の表現保存はパイプラインではなく、学習画面のフォームから明示的に行います。
 
@@ -237,7 +238,7 @@ firebase deploy --only firestore:rules
 
 1. リポジトリを接続する
 2. `.env.example` の値を Environment Variables に設定する
-3. `CRON_SECRET` を設定し、`/api/cron/jobs` を定期実行できるようにする
+3. `CRON_SECRET` を設定し、`/api/cron/jobs` を 1 分ごとに定期実行できるようにする
 4. Preview / Production をデプロイする
 
 ## 外部スケジューラ

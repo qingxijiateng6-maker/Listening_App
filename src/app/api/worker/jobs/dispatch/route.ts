@@ -4,6 +4,7 @@ import { createWorkerId, dispatchJobs, runJobToCompletion } from "@/lib/jobs/que
 import { isAuthorizedCronRequest, isAuthorizedWorkerRequest } from "@/lib/server/internalAuth";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   if (!isAuthorizedCronRequest(request) && !isAuthorizedWorkerRequest(request)) {
